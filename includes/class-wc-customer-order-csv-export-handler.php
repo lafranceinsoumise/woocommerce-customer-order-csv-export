@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Handler
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -275,8 +275,21 @@ class WC_Customer_Order_CSV_Export_Handler {
 				$order->add_order_note( $order_note );
 			}
 
-			// add exported flag
-			update_post_meta( $order_id, '_wc_customer_order_csv_export_is_exported', 1 );
+			/**
+			 * Filters whether to add the "exported" flag to orders or not.
+			 *
+			 * TODO: move to a compat / WC 3.0+ method here when dropping WC 2.6 support {BR 2017-05-04}
+			 *
+			 * @since 4.3.0
+			 *
+			 * @param bool $mark_as_exported whether to mark the order as exported; defaults to true
+			 * @param \WC_Order $order order being exported
+			 * @param string $method how the order is exported (ftp, download, etc)
+			 * @param \WC_Customer_Order_CSV_Export_Handler $this, handler instance
+			 */
+			if ( apply_filters( 'wc_customer_order_csv_export_mark_order_exported', true, $order, $method, $this ) ) {
+				update_post_meta( $order_id, '_wc_customer_order_csv_export_is_exported', 1 );
+			}
 
 			/**
 			 * Order Exported Action.
@@ -314,7 +327,21 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 				list( $email, $order_id ) = $customer_id;
 
-				update_post_meta( $order_id, '_wc_customer_order_csv_export_customer_is_exported', 1 );
+				/**
+				 * Filters whether to add the "exported" flag to guest customers or not.
+				 *
+				 * TODO: move to a compat / WC 3.0+ method here when dropping WC 2.6 support {BR 2017-05-04}
+				 *
+				 * @since 4.3.0
+				 *
+				 * @param bool $mark_as_exported whether to mark the guest as exported; defaults to true
+				 * @param int $user_id ID of the customer being exported, 0 for guests
+				 * @param string $method how the customer is exported (ftp, download, etc)
+				 * @param \WC_Customer_Order_CSV_Export_Handler $this, handler instance
+				 */
+				if ( apply_filters( 'wc_customer_order_csv_export_mark_customer_exported', true, 0, $method, $this ) ) {
+					update_post_meta( $order_id, '_wc_customer_order_csv_export_customer_is_exported', 1 );
+				}
 
 			} else {
 
@@ -324,7 +351,19 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 					$email = $user->user_email;
 
-					update_user_meta( $user->ID, '_wc_customer_order_csv_export_is_exported', 1 );
+					/**
+					 * Filters whether to add the "exported" flag to registered customers or not.
+					 *
+					 * @since 4.3.0
+					 *
+					 * @param bool $mark_as_exported whether to mark the user as exported; defaults to true
+					 * @param int $user_id ID of the customer being exported, 0 for guests
+					 * @param string $method how the customer is exported (ftp, download, etc)
+					 * @param \WC_Customer_Order_CSV_Export_Handler $this, handler instance
+					 */
+					if ( apply_filters( 'wc_customer_order_csv_export_mark_customer_exported', true, $user->ID, $method, $this ) ) {
+						update_user_meta( $user->ID, '_wc_customer_order_csv_export_is_exported', 1 );
+					}
 				}
 			}
 
@@ -616,9 +655,10 @@ class WC_Customer_Order_CSV_Export_Handler {
 		}
 
 		$file_path = $exports_dir . '/' . uniqid( null, true ) . '-' . $filename;
-		$stream    = fopen( $file_path, 'w' );
 
-		if ( false === $stream ) {
+		$stream = @fopen( $file_path, 'w' );
+
+		if ( ! is_writable( $file_path ) || false === $stream ) {
 			/* translators: Placeholders: %s - file name */
 			throw new SV_WC_Plugin_Exception( sprintf( esc_html__( 'Could not open the export file %s for writing', 'woocommerce-customer-order-csv-export' ), $file_path ) );
 		}
@@ -860,7 +900,7 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 
 	/**
-	 * Remove export fnished notice from user meta
+	 * Remove export finished notice from user meta
 	 *
 	 * @since 4.0.0
 	 * @param object|string $export Export object or ID

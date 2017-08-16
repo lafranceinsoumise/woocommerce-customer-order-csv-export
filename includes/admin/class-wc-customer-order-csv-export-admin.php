@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Admin
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -62,15 +62,15 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 		/** General Admin Hooks */
 
-		// Load custom admin styles / scripts
+		// load custom admin styles / scripts
 		add_action( 'admin_enqueue_scripts', array( $this, 'load_styles_scripts' ), 11 );
 
-		// Load WC styles / scripts
+		// load WC styles / scripts
 		add_filter( 'woocommerce_screen_ids', array( $this, 'load_wc_styles_scripts' ) );
 
 		add_action( 'current_screen', array( $this, 'process_export_bulk_actions' ) );
 
-		// Add 'CSV Export' link under WooCommerce menu
+		// add 'CSV Export' link under WooCommerce menu
 		add_action( 'admin_menu', array( $this, 'add_menu_link' ) );
 
 		// render any admin notices
@@ -78,30 +78,45 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 		/** Order Hooks */
 
-		// Add 'Export Status' orders page column header
+		// add 'Export Status' orders and customers page column header
 		add_filter( 'manage_edit-shop_order_columns', array( $this, 'add_order_status_column_header' ), 20 );
+		add_filter( 'manage_users_columns',           array( $this, 'add_user_status_column_header' ), 20 );
 
-		// Add 'Export Status' orders page column content
+		// add 'Export Status' orders page column content
 		add_action( 'manage_shop_order_posts_custom_column', array( $this, 'add_order_status_column_content' ) );
+		add_filter( 'manage_users_custom_column', array( $this, 'add_user_export_status_column_content' ), 10, 3 );
 
-		// Add 'Export to CSV' action on orders page
+		// add 'Export to CSV' action on orders page
 		add_action( 'woocommerce_admin_order_actions_end', array( $this, 'add_order_action' ), 10, 2 );
 
-		// Add 'Export to CSV' order meta box order action
+		// add 'Export to CSV' order meta box order action
 		add_action( 'woocommerce_order_actions', array( $this, 'add_order_meta_box_actions' ) );
 
-		// Add bulk order filter for exported / non-exported orders
+		// add bulk order filter for exported / non-exported orders
 		add_action( 'restrict_manage_posts', array( $this, 'filter_orders_by_export_status') , 20 );
 		add_filter( 'request',               array( $this, 'filter_orders_by_export_status_query' ) );
 
-		// Add bulk action to download multiple orders to CSV and mark them as exported / not-exported
-		add_action( 'admin_footer-edit.php', array( $this, 'add_order_bulk_actions' ) );
-		add_action( 'load-edit.php',         array( $this, 'process_order_bulk_actions' ) );
+		/** Bulk Actions */
+		if ( version_compare( get_bloginfo( 'version' ), '4.7', '>=' ) ) {
+
+			add_filter( 'bulk_actions-edit-shop_order',        array( $this, 'add_order_bulk_actions' ) );
+			add_filter( 'handle_bulk_actions-edit-shop_order', array( $this, 'process_order_bulk_actions' ), 10, 3 );
+
+			add_filter( 'bulk_actions-users',        array( $this, 'add_user_bulk_actions' ) );
+			add_filter( 'handle_bulk_actions-users', array( $this, 'process_user_bulk_actions' ), 10, 3 );
+
+		} else {
+
+			add_action( 'admin_footer-edit.php',  array( $this, 'add_bulk_actions_legacy' ) );
+			add_action( 'admin_footer-users.php', array( $this, 'add_bulk_actions_legacy' ) );
+			add_action( 'load-edit.php',          array( $this, 'process_bulk_actions_legacy' ) );
+			add_action( 'load-users.php',         array( $this, 'process_bulk_actions_legacy' ) );
+		}
 
 		/** System Status Report */
 		add_action( 'woocommerce_system_status_report', array( $this, 'add_system_status_report' ) );
 
-		// Add export modal to export-related admin screens
+		// add export modal to export-related admin screens
 		add_action( 'admin_footer', array( $this, 'add_export_modals' ) );
 
 		if ( isset( $_GET['export_id'] ) ) {
@@ -119,6 +134,9 @@ class WC_Customer_Order_CSV_Export_Admin {
 		add_action( 'woocommerce_admin_field_csv_product_search', array( $this, 'render_product_search_field' ) );
 
 		add_action( 'init', array( $this, 'set_settings_page_name' ) );
+
+		// update CSV exports folder protection when file download method is changed
+		add_action( 'woocommerce_settings_saved', array( $this, 'check_exports_folder_protection' ) );
 	}
 
 
@@ -126,15 +144,10 @@ class WC_Customer_Order_CSV_Export_Admin {
 	 * Sets the settings page name in case "WooCommerce" is translated
 	 * The constructor is too early to set this value
 	 *
-	 * We have to do this since WP core will use the sanitized menu title for screen ID, not the slug ಠ_ಠ
-	 * which essentially breaks get_current_screen()->id when "WooCommerce" is translated.
-	 * See: https://core.trac.wordpress.org/ticket/21454 for details
-	 * TODO: Can be removed when https://core.trac.wordpress.org/ticket/18857 is fixed {BR 2016-12-04}
-	 *
 	 * @since 4.1.3
 	 */
 	public function set_settings_page_name() {
-		$this->settings_page_name = sanitize_title( __( 'WooCommerce', 'woocommerce' ) ) . '_page_wc_customer_order_csv_export';
+		$this->settings_page_name = SV_WC_Plugin_Compatibility::normalize_wc_screen_id( 'wc_customer_order_csv_export' );
 	}
 
 
@@ -145,10 +158,10 @@ class WC_Customer_Order_CSV_Export_Admin {
 	 * @param string $hook_suffix
 	 */
 	public function load_styles_scripts( $hook_suffix ) {
-		global $wp_scripts, $typenow;
+		global $wp_scripts;
 
-		// only load on settings / view orders pages
-		if ( $this->page === $hook_suffix || 'edit.php' === $hook_suffix || 'post.php' === $hook_suffix && 'shop_order' === $typenow ) {
+		// only load if on an export screen
+		if ( $this->is_export_screen() ) {
 
 			// Admin CSS
 			wp_enqueue_style( 'wc-customer-order-csv-export_admin', wc_customer_order_csv_export()->get_plugin_url() . '/assets/css/admin/wc-customer-order-csv-export-admin.min.css', array( 'dashicons' ), WC_Customer_Order_CSV_Export::VERSION );
@@ -178,7 +191,7 @@ class WC_Customer_Order_CSV_Export_Admin {
 				} else {
 
 					// note - for some wicked reason, we have to explicitly declare backbone
-					// as a dependecy here, or backbone will be loaded after the modal script,
+					// as a dependency here, or backbone will be loaded after the modal script,
 					// even though it's declared when the script was first registered ¯\_(ツ)_/¯
 					wp_enqueue_script( $modal_handle, null, array( 'backbone' ) );
 				}
@@ -214,13 +227,14 @@ class WC_Customer_Order_CSV_Export_Admin {
 					'default_one_row_per_item' => __( 'Default - One Row per Item', 'woocommerce-customer-order-csv-export' ),
 					'import'                   => __( 'CSV Import', 'woocommerce-customer-order-csv-export' ),
 				),
-				'create_export_nonce'  => wp_create_nonce( 'create-export' ),
-				'calendar_icon_url'    => WC()->plugin_url() . '/assets/images/calendar.png',
-				'is_wc_version_lt_2_6' => SV_WC_Plugin_Compatibility::is_wc_version_lt_2_6(),
-				'export_list_url'      => admin_url( 'admin.php?page=wc_customer_order_csv_export&tab=export_list' ),
-				'settings_page'        => $this->settings_page_name,
-				'current_tab'          => empty( $_GET[ 'tab' ] ) ? 'export' : sanitize_title( $_GET[ 'tab' ] ),
-				'current_section'      => empty( $_REQUEST['section'] ) ? '' : sanitize_title( $_REQUEST['section'] ),
+				'create_export_nonce'   => wp_create_nonce( 'create-export' ),
+				'calendar_icon_url'     => WC()->plugin_url() . '/assets/images/calendar.png',
+				'is_wc_version_lt_2_6'  => SV_WC_Plugin_Compatibility::is_wc_version_lt_2_6(),
+				'is_wc_version_gte_3_0' => SV_WC_Plugin_Compatibility::is_wc_version_gte_3_0(),
+				'export_list_url'       => admin_url( 'admin.php?page=wc_customer_order_csv_export&tab=export_list' ),
+				'settings_page'         => $this->settings_page_name,
+				'current_tab'           => empty( $_GET['tab'] ) ? 'export' : sanitize_title( $_GET['tab'] ),
+				'current_section'       => empty( $_REQUEST['section'] ) ? '' : sanitize_title( $_REQUEST['section'] ),
 			) );
 		}
 	}
@@ -236,6 +250,8 @@ class WC_Customer_Order_CSV_Export_Admin {
 	public function load_wc_styles_scripts( $screen_ids ) {
 
 		$screen_ids[] = $this->settings_page_name;
+		$screen_ids[] = 'users';
+
 		return $screen_ids;
 
 	}
@@ -288,7 +304,9 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 					list( $message, $notice_class ) = $this->get_export_finished_message( $export_id );
 
-					wc_customer_order_csv_export()->get_admin_notice_handler()->add_admin_notice( $message, $message_id, array( 'always_show_on_settings' => false, 'notice_class' => $notice_class ) );
+					if ( $message ) {
+						wc_customer_order_csv_export()->get_admin_notice_handler()->add_admin_notice( $message, $message_id, array( 'always_show_on_settings' => false, 'notice_class' => $notice_class ) );
+					}
 				}
 			}
 		}
@@ -313,26 +331,30 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 					$message = $this->get_failure_message( $failure_type, $args['export_id'], ! empty( $args['multiple_failures'] ) );
 
-					wc_customer_order_csv_export()->get_admin_notice_handler()->add_admin_notice( $message, $message_id, array( 'always_show_on_settings' => false, 'notice_class' => 'error' ) );
+					if ( $message ) {
+						wc_customer_order_csv_export()->get_admin_notice_handler()->add_admin_notice( $message, $message_id, array( 'always_show_on_settings' => false, 'notice_class' => 'error' ) );
+					}
 				}
 			}
 		}
+
+		wc_customer_order_csv_export()->get_message_handler()->show_messages();
 	}
 
 
 	/**
-	 * Get export finished message
+	 * Returns the export finished message
 	 *
 	 * @since 4.0.0
 	 * @param string $export_id
-	 * @return array
+	 * @return array|false message and notice class, or false on failure
 	 */
 	private function get_export_finished_message( $export_id ) {
 
 		$export = wc_customer_order_csv_export()->get_export_handler_instance()->get_export( $export_id );
 
 		if ( ! $export ) {
-			return '';
+			return false;
 		}
 
 		$filename = basename( $export->file_path );
@@ -362,11 +384,7 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 		}
 
-		if ( ! $message ) {
-			return '';
-		}
-
-		return array( $message, $notice_class );
+		return isset( $message ) ? array( $message, $notice_class ) : false;
 	}
 
 
@@ -377,7 +395,7 @@ class WC_Customer_Order_CSV_Export_Admin {
 	 * @param string $failure_type
 	 * @param object|string $export export instance or id
 	 * @param bool $multiple_failures defaults to false
-	 * @return string
+	 * @return string|bool message string or false on failure
 	 */
 	private function get_failure_message( $failure_type, $export, $multiple_failures = false ) {
 
@@ -386,7 +404,7 @@ class WC_Customer_Order_CSV_Export_Admin {
 		}
 
 		if ( ! $export ) {
-			return '';
+			return false;
 		}
 
 		$filename = basename( $export->file_path );
@@ -487,24 +505,31 @@ class WC_Customer_Order_CSV_Export_Admin {
 				$json_ids[ $product_id ] = wp_kses_post( $product->get_formatted_name() );
 			}
 		}
-
 		?><tr valign="top">
 			<th scope="row" class="titledesc">
 				<label for="<?php echo esc_attr( $value['id'] ); ?>"><?php echo esc_html( $value['title'] ); ?></label>
 				<?php echo $field_description['tooltip_html']; ?>
 			</th>
 			<td class="forminp forminp-<?php echo sanitize_html_class( $value['type'] ) ?>">
-				<input
-					name="<?php echo esc_attr( $value['id'] ); ?>"
-					id="<?php echo esc_attr( $value['id'] ); ?>"
-					type="hidden"
-					style="<?php echo esc_attr( $value['css'] ); ?>"
-					value="<?php echo esc_attr( $option_value ); ?>"
-					class="<?php echo esc_attr( $value['class'] ); ?>"
-					data-selected="<?php echo esc_attr( json_encode( $json_ids ) ); ?>"
-					data-exclude="wc_customer_order_csv_export_grouped_products"
-					<?php echo implode( ' ', $custom_attributes ); ?>
-					/> <?php echo $field_description['description']; ?>
+				<?php if ( SV_WC_Plugin_Compatibility::is_wc_version_gte_3_0() ) : ?>
+					<select class="<?php echo esc_attr( $value['class'] ); ?>" multiple="multiple" style="<?php echo esc_attr( $value['css'] ); ?>" name="<?php echo esc_attr( $value['id'] ); ?>[]" data-placeholder="<?php echo esc_attr( $value['custom_attributes']['data-placeholder'] ); ?>" data-action="<?php echo esc_attr( $value['custom_attributes']['data-action'] ); ?>">
+						<?php foreach ( $json_ids as $id => $name ) : ?>
+							<option value="<?php echo esc_attr( $id ); ?>" selected="selected"><?php echo $name; ?></option>
+						<?php endforeach; ?>
+					</select>
+				<?php else: ?>
+					<input
+						name="<?php echo esc_attr( $value['id'] ); ?>"
+						id="<?php echo esc_attr( $value['id'] ); ?>"
+						type="hidden"
+						style="<?php echo esc_attr( $value['css'] ); ?>"
+						value="<?php echo esc_attr( $option_value ); ?>"
+						class="<?php echo esc_attr( $value['class'] ); ?>"
+						data-selected="<?php echo esc_attr( json_encode( $json_ids ) ); ?>"
+						data-exclude="wc_customer_order_csv_export_grouped_products"
+						<?php echo implode( ' ', $custom_attributes ); ?>
+						/> <?php echo $field_description['description']; ?>
+				<?php endif; ?>
 			</td>
 		</tr><?php
 	}
@@ -733,6 +758,28 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 
 	/**
+	 * Adds 'Export Status' column header to 'Users' page immediately after 'Order Status' column
+	 *
+	 * @since 4.3.0
+	 * @param array $columns
+	 * @return array $new_columns
+	 */
+	public function add_user_status_column_header( $columns ) {
+
+		$label = __( 'Export Status', 'woocommerce-customer-order-csv-export' );
+
+		if ( wc_customer_order_csv_export()->is_plugin_active( 'woocommerce-customer-order-xml-export-suite.php' ) ) {
+
+			$label = __( 'CSV Export Status', 'woocommerce-customer-order-csv-export' );
+		}
+
+		$columns['csv_export_status'] = $label;
+
+		return $columns;
+	}
+
+
+	/**
 	 * Adds 'Export Status' column content to 'Orders' page immediately after 'Order Status' column
 	 *
 	 * 'Not Exported' - if 'is_exported' order meta doesn't exist or is equal to 0
@@ -750,13 +797,38 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 			$is_exported = false;
 
-			if ( $order->wc_customer_order_csv_export_is_exported ) {
+			if ( SV_WC_Order_Compatibility::get_meta( $order, '_wc_customer_order_csv_export_is_exported', true ) ) {
 
 				$is_exported = true;
 			}
 
 			printf( '<mark class="%1$s">%2$s</mark>', $is_exported ? 'csv_exported' : 'csv_not_exported', $is_exported ? esc_html__( 'Exported', 'woocommerce-customer-order-csv-export' ) : esc_html__( 'Not Exported', 'woocommerce-customer-order-csv-export' ) );
 		}
+	}
+
+
+	/**
+	 * Adds 'Export Status' column content to 'Users' page.
+	 *
+	 * 'Not Exported' - if 'is_exported' user meta doesn't exist or is equal to 0.
+	 * 'Exported' - if 'is_exported' user meta exists and is equal to 1.
+	 *
+	 * @since 4.3.0
+	 * @param string $output the column contents
+	 * @param string $column name of column being displayed
+	 * @param int $user_id the user id
+	 * @return string the column contents
+	 */
+	public function add_user_export_status_column_content( $output, $column, $user_id ) {
+
+		if ( 'csv_export_status' === $column ) {
+
+			$is_exported = get_user_meta( $user_id, '_wc_customer_order_csv_export_is_exported', true );
+
+			$output = sprintf( '<mark class="%1$s">%2$s</mark>', $is_exported ? 'csv_exported' : 'csv_not_exported', $is_exported ? esc_html__( 'Exported', 'woocommerce-customer-order-csv-export' ) : esc_html__( 'Not Exported', 'woocommerce-customer-order-csv-export' ) );
+		}
+
+		return $output;
 	}
 
 
@@ -770,14 +842,13 @@ class WC_Customer_Order_CSV_Export_Admin {
 	 */
 	public function add_order_action( $order ) {
 
-		if ( ! get_post_meta( $order->id, '_wc_customer_order_csv_export_is_exported', true ) ) {
+		if ( ! SV_WC_Order_Compatibility::get_meta( $order, '_wc_customer_order_csv_export_is_exported', true ) ) {
 
 			$action = 'download_to_csv';
 			$name   = __( 'Download to CSV', 'woocommerce-customer-order-csv-export' );
 
 			printf( '<a class="button tips %1$s" href="#" data-tip="%2$s">%3$s</a>', esc_attr( $action ), esc_attr( $name ), esc_html( $name ) );
 		}
-
 	}
 
 
@@ -860,104 +931,272 @@ class WC_Customer_Order_CSV_Export_Admin {
 	/**
 	 * Add 'Download to CSV' custom bulk action to the 'Orders' page bulk action drop-down
 	 *
+	 * In 4.3.0 added the $bulk_actions param and the return value.
+	 *
+	 * @internal
+	 *
 	 * @since 3.0.0
+	 * @param string[] $bulk_actions associative array of bulk actions and their labels
+	 * @return string[]
 	 */
-	public function add_order_bulk_actions() {
-		global $post_type, $post_status;
+	public function add_order_bulk_actions( $bulk_actions ) {
 
-		if ( 'shop_order' === $post_type && 'trash' !== $post_status ) {
+		return array_merge( $bulk_actions, $this->get_bulk_actions( 'orders' ) );
+	}
 
-			?>
-			<script type="text/javascript">
-				jQuery( document ).ready( function ( $ ) {
-					var $exported        = $( '<option>' ).val( 'mark_exported_to_csv' ).text( '<?php esc_html_e( 'Mark exported to CSV', 'woocommerce-customer-order-csv-export' ); ?>' ),
-					    $not_exported    = $( '<option>' ).val( 'mark_not_exported_to_csv' ).text( '<?php esc_html_e( 'Mark not exported to CSV', 'woocommerce-customer-order-csv-export' ); ?>' ),
-					    $download_to_csv = $( '<option>' ).val( 'download_to_csv' ).text( '<?php esc_html_e( 'Download to CSV', 'woocommerce-customer-order-csv-export' ); ?>' );
 
-					$( 'select[name^="action"]' ).append( $exported, $not_exported, $download_to_csv );
+	/**
+	 * Add 'Download to CSV' custom bulk action to the 'Users' page bulk action drop-down
+	 *
+	 * @internal
+	 *
+	 * @since 4.3.0
+	 * @param string[] $bulk_actions associative array of bulk actions and their labels
+	 * @return string[]
+	 */
+	public function add_user_bulk_actions( $bulk_actions ) {
 
-					<?php
-						// add export to CSV via [method] action
-						if ( $auto_export_method = $this->get_methods_instance()->get_auto_export_method( 'orders' ) ) {
+		return array_merge( $bulk_actions, $this->get_bulk_actions( 'customers' ) );
+	}
 
-							$label = $this->get_methods_instance()->get_export_method_label( $auto_export_method );
 
-							/* translators: Placeholders: %s - via [method], full example: Export to CSV via Email */
-							$label = sprintf( __( 'Export to CSV %s', 'woocommerce-customer-order-csv-export' ), $label );
+	/**
+	 * Returns CSV export bulk actions for the given export type.
+	 *
+	 * @since 4.3.0
+	 * @param string $export_type the export type, `orders` or `customers`
+	 * @return string[] associative array of bulk actions and their labels
+	 */
+	private function get_bulk_actions( $export_type ) {
 
-							?>
+		$bulk_actions = array(
+			'mark_exported_to_csv'     => __( 'Mark exported to CSV', 'woocommerce-customer-order-csv-export' ),
+			'mark_not_exported_to_csv' => __( 'Mark not exported to CSV', 'woocommerce-customer-order-csv-export' ),
+			'download_to_csv'          => __( 'Download to CSV', 'woocommerce-customer-order-csv-export' ),
+		);
 
-							$export_via_auto_export_method = $( '<option>' ).val( 'export_to_csv_via_auto_export_method' ).text( '<?php echo $label ?>' );
-							$( 'select[name^="action"]' ).append( $export_via_auto_export_method );
+		// add export to CSV via [method] action
+		if ( $auto_export_method = $this->get_methods_instance()->get_auto_export_method( $export_type ) ) {
 
-							<?php
-						}
-						?>
-				});
-			</script>
-			<?php
+			$label = $this->get_methods_instance()->get_export_method_label( $auto_export_method );
+
+			/* translators: Placeholders: %s - via [method], full example: Export to CSV via Email */
+			$label = sprintf( __( 'Export to CSV %s', 'woocommerce-customer-order-csv-export' ), $label );
+
+			$bulk_actions['export_to_csv_via_auto_export_method'] = $label;
+		}
+
+		return $bulk_actions;
+	}
+
+
+	/**
+	 * Adds CSV export bulk actions to supported screens using JS.
+	 *
+	 * Workaround for adding bulk actions to WP list table pre WP 4.7.
+	 *
+	 * @since 4.3.0
+	 */
+	public function add_bulk_actions_legacy() {
+		global $post_status;
+
+		$screen = get_current_screen();
+
+		if ( in_array( $screen->id, array( 'edit-shop_order', 'users' ) ) && 'trash' !== $post_status ) {
+
+			$export_type  = $this->map_screen_to_export_type( $screen->id );
+			$bulk_actions = $this->get_bulk_actions( $export_type );
+
+			if ( ! empty( $bulk_actions ) ) {
+				?>
+				<script type="text/javascript">
+					jQuery( document ).ready( function ( $ ) {
+						<?php foreach ( $bulk_actions as $action => $label ) : ?>
+							$( 'select[name^="action"]' ).append( $( '<option>' ).val( '<?php echo esc_html( $action ); ?>' ).text( '<?php echo esc_html( $label ); ?>' ) );
+						<?php endforeach; ?>
+					});
+				</script>
+				<?php
+			}
 		}
 	}
 
 
 	/**
-	 * Processes the 'Download to CSV' custom bulk action on the 'Orders' page bulk action drop-down
+	 * Processes the custom bulk action on the 'Orders' page bulk action drop-down
+	 *
+	 * In 4.3.0 added the $redirect_to, $doactions and $post_ids params, as well as the return value.
+	 *
+	 * @internal
 	 *
 	 * @since 3.0.0
+	 * @param string $redirect_to the redirect url
+	 * @param string $doaction the action being taken
+	 * @param int[] $order_ids the orders to take the action on
+	 * @return string the redirect url
 	 */
-	public function process_order_bulk_actions() {
-		global $typenow;
+	public function process_order_bulk_actions( $redirect_to, $doaction, $order_ids ) {
 
-		if ( 'shop_order' === $typenow ) {
+		$this->process_bulk_actions( $doaction, $order_ids, 'orders' );
+
+		return $redirect_to;
+	}
+
+
+	/**
+	 * Processes the custom bulk actions on the 'Users' page bulk action drop-down
+	 *
+	 * @internal
+	 *
+	 * @since 4.3.0
+	 * @param string $redirect_to the redirect url
+	 * @param string $doaction the action being taken
+	 * @param int[] $user_ids the users to take the action on
+	 * @return string the redirect url
+	 */
+	public function process_user_bulk_actions( $redirect_to, $doaction, $user_ids ) {
+
+		$this->process_bulk_actions( $doaction, $user_ids, 'customers' );
+
+		return $redirect_to;
+	}
+
+
+	/**
+	 * Processes custom bulk actions for an export type
+	 *
+	 * @since 4.3.0
+	 * @param string $action the action being taken
+	 * @param int[] $object_ids the items to take the action on
+	 * @param string $export_type he export type, one of `orders` or `customers`
+	 */
+	private function process_bulk_actions( $action, $object_ids, $export_type ) {
+
+		$meta_type = 'customers' === $export_type ? 'user' : 'post';
+
+		switch ( $action ) {
+
+			case 'mark_exported_to_csv':
+
+				// mark each object as exported
+				foreach( $object_ids as $object_id ) {
+					update_metadata( $meta_type, $object_id, '_wc_customer_order_csv_export_is_exported', 1 );
+				}
+
+				$message = '';
+
+				switch ( $export_type ) {
+					case 'customers':
+						$message = sprintf( _n( '%d customer marked as exported to CSV', '%d customers marked as exported to CSV', count( $object_ids ), 'woocommerce-customer-order-csv-export' ), count( $object_ids ) );
+					break;
+
+					case 'orders':
+						$message = sprintf( _n( '%d order marked as exported to CSV', '%d orders marked as exported to CSV', count( $object_ids ), 'woocommerce-customer-order-csv-export' ), count( $object_ids ) );
+					break;
+				}
+
+				wc_customer_order_csv_export()->get_message_handler()->add_message( $message );
+
+			break;
+
+			case 'mark_not_exported_to_csv':
+
+				// mark each object as not exported
+				foreach( $object_ids as $object_id ) {
+					update_metadata( $meta_type, $object_id, '_wc_customer_order_csv_export_is_exported', 0 );
+				}
+
+				$message = '';
+
+				switch ( $export_type ) {
+					case 'customers':
+						$message = sprintf( _n( '%d customer marked as not exported to CSV', '%d customers marked as not exported to CSV', count( $object_ids ), 'woocommerce-customer-order-csv-export' ), count( $object_ids ) );
+					break;
+
+					case 'orders':
+						$message = sprintf( _n( '%d order marked as not exported to CSV', '%d orders marked as not exported to CSV', count( $object_ids ), 'woocommerce-customer-order-csv-export' ), count( $object_ids ) );
+					break;
+				}
+				wc_customer_order_csv_export()->get_message_handler()->add_message( $message );
+
+			break;
+		}
+	}
+
+
+	/**
+	 * Processes custom bulk actions in WP < 4.7
+	 *
+	 * @since 4.3.0
+	 */
+	public function process_bulk_actions_legacy() {
+		global $post_status;
+
+		$screen = get_current_screen();
+
+		if ( in_array( $screen->id, array( 'edit-shop_order', 'users' ) ) && 'trash' !== $post_status ) {
+
+			$export_type  = $this->map_screen_to_export_type( $screen->id );
+			$list_table   = 'customers' === $export_type ? 'WP_Users_List_Table' : 'WP_Posts_List_Table';
 
 			// get the action
-			$wp_list_table = _get_list_table( 'WP_Posts_List_Table' );
+			$wp_list_table = _get_list_table( $list_table );
 			$action        = $wp_list_table->current_action();
 
-			// return if not processing our actions
-			if ( ! in_array( $action, array( 'download_to_csv', 'mark_exported_to_csv', 'mark_not_exported_to_csv' ), true ) ) {
+			// bail if not processing one of our actions
+			if ( ! array_key_exists( $action, $this->get_bulk_actions( $export_type ) ) ) {
 				return;
 			}
 
-			// security check
-			check_admin_referer( 'bulk-posts' );
-
-			// make sure order IDs are submitted
-			if ( isset( $_REQUEST['post'] ) ) {
-
-				$order_ids = array_map( 'absint', $_REQUEST['post'] );
+			// security check & get object ids
+			if ( 'customers' === $export_type ) {
+				check_admin_referer( 'bulk-users' );
+				$object_ids = array_map( 'absint', ! empty( $_REQUEST['users'] ) ? $_REQUEST['users'] : null );
+			} else {
+				check_admin_referer( 'bulk-posts' );
+				$object_ids = array_map( 'absint', ! empty( $_REQUEST['post'] ) ? $_REQUEST['post'] : null );
 			}
 
-			// return if there are no orders to export
-			if ( empty( $order_ids ) ) {
-
+			// return if there are no objects to export
+			if ( empty( $object_ids ) ) {
 				return;
 			}
 
 			// give ourselves an unlimited timeout if possible
 			@set_time_limit( 0 );
 
-			switch ( $action ) {
+			$this->process_bulk_actions( $action, $object_ids, $export_type );
 
-				case 'mark_exported_to_csv':
-
-					// mark each order as exported
-					foreach( $order_ids as $order_id ) {
-						update_post_meta( $order_id, '_wc_customer_order_csv_export_is_exported', 1 );
-					}
-
-				break;
-
-				case 'mark_not_exported_to_csv':
-
-					// mark each order as not exported
-					foreach( $order_ids as $order_id ) {
-						update_post_meta( $order_id, '_wc_customer_order_csv_export_is_exported', 0 );
-					}
-
-				break;
-			}
+			// redirect back, since WP < 4.7 doesn't do it for us
+			wp_safe_redirect( wp_get_referer() );
+			exit;
 		}
+	}
+
+
+	/**
+	 * Maps screen id to an export type.
+	 *
+	 * @since 4.3.0
+	 * @param string $screen_id the screen id
+	 * @return string|null the export type or null if no match found
+	 */
+	private function map_screen_to_export_type( $screen_id ) {
+
+		$export_type = null;
+
+		// match screen id to export type
+		switch ( $screen_id ) {
+			case 'edit-shop_order':
+				$export_type = 'orders';
+			break;
+
+			case 'users':
+				$export_type = 'customers';
+			break;
+		}
+
+		return $export_type;
 	}
 
 
@@ -1011,12 +1250,12 @@ class WC_Customer_Order_CSV_Export_Admin {
 
 		$options = array(
 
-			array(
+			'export_section_title' => array(
 				'name' => __( 'Export', 'woocommerce-customer-order-csv-export' ),
 				'type' => 'title',
 			),
 
-			array(
+			'type' => array(
 				'id'      => 'type',
 				'name'    => __( 'Export Orders or Customers', 'woocommerce-customer-order-csv-export' ),
 				'type'    => 'radio',
@@ -1027,14 +1266,14 @@ class WC_Customer_Order_CSV_Export_Admin {
 				'default'  => 'orders',
 			),
 
-			array( 'type' => 'sectionend' ),
+			'export_section_end' => array( 'type' => 'sectionend' ),
 
-			array(
+			'export_options_section_title' => array(
 				'name' => __( 'Export Options', 'woocommerce-customer-order-csv-export' ),
 				'type' => 'title',
 			),
 
-			array(
+			'statuses' => array(
 				'id'                => 'statuses',
 				'name'              => __( 'Order Statuses', 'woocommerce-customer-order-csv-export' ),
 				'desc_tip'          => __( 'Orders with these statuses will be included in the export.', 'woocommerce-customer-order-csv-export' ),
@@ -1048,7 +1287,7 @@ class WC_Customer_Order_CSV_Export_Admin {
 				),
 			),
 
-			array(
+			'product_categories' => array(
 				'id'                => 'product_categories',
 				'name'              => __( 'Product Categories', 'woocommerce-customer-order-csv-export' ),
 				'desc_tip'          => __( 'Orders with products in these categories will be included in the export.', 'woocommerce-customer-order-csv-export' ),
@@ -1062,7 +1301,7 @@ class WC_Customer_Order_CSV_Export_Admin {
 				),
 			),
 
-			array(
+			'products' => array(
 				'id'                => 'products',
 				'name'              => __( 'Products', 'woocommerce-customer-order-csv-export' ),
 				'desc_tip'          => __( 'Orders with these products will be included in the export.', 'woocommerce-customer-order-csv-export' ),
@@ -1077,33 +1316,33 @@ class WC_Customer_Order_CSV_Export_Admin {
 				),
 			),
 
-			array(
+			'start_date' => array(
 				'id'   => 'start_date',
 				'name' => __( 'Start Date', 'woocommerce-customer-order-csv-export' ),
 				'desc' => __( 'Start date of customers or orders to include in the exported file, in the format <code>YYYY-MM-DD.</code>', 'woocommerce-customer-order-csv-export' ),
 				'type' => 'text',
 			),
 
-			array(
+			'end_date' => array(
 				'id'   => 'end_date',
 				'name' => __( 'End Date', 'woocommerce-customer-order-csv-export' ),
 				'desc' => __( 'End date of customers or orders to include in the exported file, in the format <code>YYYY-MM-DD.</code>', 'woocommerce-customer-order-csv-export' ),
 				'type' => 'text',
 			),
 
-			array( 'type' => 'sectionend' ),
+			'export_options_section_end' => array( 'type' => 'sectionend' ),
 
 		);
 
 
 		if ( wc_customer_order_csv_export()->is_plugin_active( 'woocommerce-subscriptions.php' ) ) {
 
-			$options[] = array(
+			$options['subscription_options_section_title'] = array(
 				'name' => __( 'Subscriptions Options', 'woocommerce-customer-order-csv-export' ),
 				'type' => 'title',
 			);
 
-			$options[] = array(
+			$options['subscription_orders'] = array(
 				'id'            => 'subscription_orders',
 				'title'         => __( 'Export Subscriptions Orders Only', 'woocommerce-customer-order-csv-export' ),
 				'desc'          => __( 'Export subscription orders', 'woocommerce-customer-order-csv-export' ),
@@ -1111,14 +1350,14 @@ class WC_Customer_Order_CSV_Export_Admin {
 				'checkboxgroup' => 'start',
 			);
 
-			$options[] = array(
+			$options['subscription_renewals'] = array(
 				'id'            => 'subscription_renewals',
 				'desc'          => __( 'Export renewal orders', 'woocommerce-customer-order-csv-export' ),
 				'type'          => 'checkbox',
 				'checkboxgroup' => 'end',
 			);
 
-			$options[] = array( 'type' => 'sectionend' );
+			$options['subscription_options_section_end'] = array( 'type' => 'sectionend' );
 
 		}
 
@@ -1173,6 +1412,7 @@ class WC_Customer_Order_CSV_Export_Admin {
 			$this->settings_page_name,
 			'shop_order',
 			'edit-shop_order',
+			'users',
 		), true );
 	}
 
@@ -1328,6 +1568,40 @@ class WC_Customer_Order_CSV_Export_Admin {
 	private function get_methods_instance() {
 
 		return wc_customer_order_csv_export()->get_methods_instance();
+	}
+
+
+	/**
+	 * Checks which method we're using to serve downloads.
+	 *
+	 * If using force or x-sendfile, this ensures the .htaccess is in place.
+	 *
+	 * In 4.3.0 moved here from WC_Customer_Order_CSV_Export_Admin_Settings
+	 *
+	 * @since 4.0.0
+	 */
+	public function check_exports_folder_protection() {
+
+		$upload_dir      = wp_upload_dir();
+		$exports_dir     = $upload_dir['basedir'] . '/csv_exports';
+		$download_method = get_option( 'woocommerce_file_download_method' );
+
+		if ( 'redirect' === $download_method ) {
+
+			// Redirect method - don't protect
+			if ( file_exists( $exports_dir . '/.htaccess' ) ) {
+				unlink( $exports_dir . '/.htaccess' );
+			}
+
+		} else {
+
+			// Force method - protect, add rules to the htaccess file
+			if ( ! file_exists( $exports_dir . '/.htaccess' ) && $file_handle = @fopen( $exports_dir . '/.htaccess', 'w' ) ) {
+
+				fwrite( $file_handle, 'deny from all' );
+				fclose( $file_handle );
+			}
+		}
 	}
 
 

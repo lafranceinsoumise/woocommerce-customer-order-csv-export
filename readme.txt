@@ -1,10 +1,10 @@
 === WooCommerce Customer/Order CSV Export ===
-Author: woothemes, skyverge
+Author: skyverge
 Tags: woocommerce
 Requires at least: 4.4
-Tested up to: 4.7.0
-Requires WooCommerce at least: 2.4.13
-Tested WooCommerce up to: 2.6.9
+Tested up to: 4.8
+WC requires at least: 2.5.5
+WC tested up to: 3.1.1
 
 Easily download customers & orders in CSV format and automatically export FTP or HTTP POST on a recurring schedule
 

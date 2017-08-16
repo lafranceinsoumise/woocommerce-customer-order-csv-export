@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Admin
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -154,7 +154,7 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 				// separated with a dash
 				$filename = substr( $filename, strpos( $filename, '-' ) + 1 );
 
-				return $filename;
+				return esc_html( $filename );
 			break;
 
 			case 'export_type':
@@ -190,10 +190,12 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 
 				if ( 'completed' === $export->status ) {
 
+					$download_url = wp_nonce_url( admin_url(), 'download-export' );
+
 					$download_url = add_query_arg( array(
 						'download_exported_csv_file' => 1,
 						'export_id'                  => $export->id,
-					), admin_url() );
+					), $download_url );
 
 					$actions['download'] = array(
 						'url'    => $download_url,
@@ -278,8 +280,6 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 	 * @since 4.0.0
 	 */
 	public function prepare_items() {
-
-		global $wpdb;
 
 		// set column headers manually, see https://codex.wordpress.org/Class_Reference/WP_List_Table#Extended_Properties
 		$columns               = $this->get_columns();

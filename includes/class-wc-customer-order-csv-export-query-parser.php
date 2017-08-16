@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Query-Parser
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -431,7 +431,7 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 	 * Sanitize a list of IDs
 	 *
 	 * Passes each ID through `absint()` to ensure integer ID values.
-	 * Accepts wither a comma-separated string of IDs or an array of IDs
+	 * Accepts either a comma-separated string of IDs or an array of IDs
 	 *
 	 * @since 4.0.0
 	 * @param array|string $ids IDs

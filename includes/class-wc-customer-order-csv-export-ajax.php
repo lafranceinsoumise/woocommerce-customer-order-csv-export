@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/AJAX
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -77,6 +77,9 @@ class WC_Customer_Order_CSV_Export_AJAX {
 		// `ids` in the query will take priority - it's used directly, as the export
 		// input and all other query params will be ignored
 		$export_ids = ! empty( $export_query['ids'] ) ? $export_query['ids'] : WC_Customer_Order_CSV_Export_Query_Parser::parse_export_query( $export_query, $export_type );
+
+		// in case we're exporting a single order, cast as array
+		$export_ids = array_filter( array_map( array( $this, 'sanitize_export_ids' ), (array) $export_ids ) );
 
 		// nothing found to export
 		if ( empty( $export_ids ) ) {
@@ -144,6 +147,24 @@ class WC_Customer_Order_CSV_Export_AJAX {
 
 
 	/**
+	 * Ensure export IDs are only integers. Note that customer export IDs
+	 * can be either a user ID or for guests, an array in the format: array( billing email, order ID )
+	 *
+	 * @since 4.3.3
+	 * @param $id
+	 * @return array|int
+	 */
+	public function sanitize_export_ids( $id ) {
+
+		if ( is_array( $id ) ) {
+			return array( wc_clean( $id[0] ), absint( $id[1] ) );
+		} else {
+			return absint( $id );
+		}
+	}
+
+
+	/**
 	 * Get export job status
 	 *
 	 * @since 4.0.0
@@ -188,11 +209,13 @@ class WC_Customer_Order_CSV_Export_AJAX {
 
 		if ( 'completed' === $export->status ) {
 
+			$download_url = wp_nonce_url( admin_url(), 'download-export' );
+
 			// return the download url for the exported file
-			$response['download_url'] = add_query_arg( array(
+			$response['download_url'] =	add_query_arg( array(
 				'download_exported_csv_file' => 1,
 				'export_id'                  => $export->id,
-			), admin_url() );
+			), $download_url );
 		}
 
 		if ( 'failed' === $export->transfer_status ) {

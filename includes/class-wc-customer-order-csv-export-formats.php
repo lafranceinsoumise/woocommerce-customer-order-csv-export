@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Classes
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -677,6 +677,10 @@ class WC_Customer_Order_CSV_Export_Formats {
 
 				if ( 'meta' === $column['source'] ) {
 					$key .= ':' . $column['meta_key'];
+				}
+
+				elseif ( 'static' === $column['source'] ) {
+					$key = $column['name'];
 				}
 
 				$columns[ $key ] = $column['name'];

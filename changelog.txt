@@ -1,5 +1,43 @@
 *** WooCommerce Customer/Order CSV Export Changelog ***
 
+2017.07.25 - version 4.3.6
+ * Fix - Deprecation warnings in WooCommerce 3.1
+
+2017.05.31 - version 4.3.5
+ * Fix - Exporting individual orders using an "Orders" list action showed no orders found
+
+2017.05.23 - version 4.3.4
+ * Misc - Add a filter 'wc_customer_order_csv_export_format_date' to allow tweaking the date format in exported files
+ * Fix - Export modal links where improperly escaped
+ * Fix - PHP notices occurred when a user to export was not found
+ * Fix - A PHP error occurred when an order to export was not found
+
+2017.05.18 - version 4.3.3
+ * Fix - Fix issue with exporting files by properly checking export file permissions
+
+2017.05.17 - version 4.3.2
+ * Fix - Export filenames in Export List were not properly escaped, which made it possibly vulnerable to a stored XSS exploit
+ * Fix - A PHP warning occurred when the export file wasn't writable
+
+2017.05.12 - version 4.3.1
+ * Fix - A PHP error occurred while processing bulk actions in WordPress versions earlier than 4.7
+
+2017.05.09 - version 4.3.0
+ * Feature - Export customers directly from the "Users" list via bulk action
+ * Feature - Add static values (such as shop name) to custom export formats
+ * Tweak - Use direct SQL queries for background jobs to prevent caching issues on certain hosts
+ * Tweak - Use GET request to dispatch background jobs as a workaround to POST request rate-limiting issues on certain hosts
+ * Fix - Properly set format settings when loading custom formats in WooCommerce 3.0+
+ * Dev - Add array keys to export options for easier customization
+
+2017.04.04 - version 4.2.1
+ * Fix - Orders could exported multiple times when auto-export schedule was "immediately"
+ * Fix - Require user to be logged in to download exported files
+
+2017.03.28 - version 4.2.0
+ * Misc - Added support for WooCommerce 3.0
+ * Misc - Removed support for WooCommerce 2.4
+
 2017.01.24 - version 4.1.4
  * Fix - SFTP can't connect with "not readable" errors in some PHP environments
 

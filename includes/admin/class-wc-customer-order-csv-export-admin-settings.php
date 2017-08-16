@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Admin
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -44,8 +44,9 @@ class WC_Customer_Order_CSV_Export_Admin_Settings {
 		// Render a custom test button when using woocommerce_admin_fields()
 		add_action( 'woocommerce_admin_field_csv_test_button', array( $this, 'render_test_button' ) );
 
-		// Update CSV exports folder protection when file download method is changed
-		add_action( 'woocommerce_settings_saved', array( $this, 'check_exports_folder_protection' ) );
+		if ( SV_WC_Plugin_Compatibility::is_wc_version_gte_3_0() ) {
+			add_filter( 'woocommerce_admin_settings_sanitize_option_wc_customer_order_csv_export_orders_auto_export_products', array( $this, 'mutate_select2_product_ids' ) );
+		}
 	}
 
 
@@ -112,10 +113,14 @@ class WC_Customer_Order_CSV_Export_Admin_Settings {
 	public static function get_settings( $section_id = null ) {
 
 		$order_statuses     = wc_get_order_statuses();
+		$product_cat_terms  = get_terms( 'product_cat' );
 		$product_categories = array();
 
-		foreach ( get_terms( 'product_cat' ) as $term ) {
-			$product_categories[ $term->term_id ] = $term->name;
+		// sanity check: get_terms() may return a WP_Error
+		if ( is_array( $product_cat_terms ) && ! empty( $product_cat_terms ) ) {
+			foreach ( $product_cat_terms as $term ) {
+				$product_categories[ $term->term_id ] = $term->name;
+			}
 		}
 
 		$export_method_options = wc_customer_order_csv_export()->get_methods_instance()->get_export_method_labels();
@@ -707,41 +712,6 @@ class WC_Customer_Order_CSV_Export_Admin_Settings {
 
 
 	/**
-	 * Checks which method we're using to serve downloads.
-	 *
-	 * If using force or x-sendfile, this ensures the .htaccess is in place.
-	 *
-	 * @since 4.0.0
-	 */
-	public function check_exports_folder_protection() {
-
-		$upload_dir      = wp_upload_dir();
-		$exports_dir     = $upload_dir['basedir'] . '/csv_exports';
-		$download_method = get_option( 'woocommerce_file_download_method' );
-
-		if ( 'redirect' === $download_method ) {
-
-			// Redirect method - don't protect
-			if ( file_exists( $exports_dir . '/.htaccess' ) ) {
-				unlink( $exports_dir . '/.htaccess' );
-			}
-
-		} else {
-
-			// Force method - protect, add rules to the htaccess file
-			if ( ! file_exists( $exports_dir . '/.htaccess' ) ) {
-
-				if ( $file_handle = @fopen( $exports_dir . '/.htaccess', 'w' ) ) {
-
-					fwrite( $file_handle, 'deny from all' );
-					fclose( $file_handle );
-				}
-			}
-		}
-	}
-
-
-	/**
 	 * Show Settings page
 	 *
 	 * @since 4.0.0
@@ -822,6 +792,24 @@ class WC_Customer_Order_CSV_Export_Admin_Settings {
 
 			wc_customer_order_csv_export()->get_message_handler()->add_message( __( 'Your settings have been saved.', 'woocommerce-customer-order-csv-export' ) );
 		}
+	}
+
+
+	/**
+	 * Mutate the select2 v4 values (introduced in WC 3.0) from an array of
+	 * product IDs into a comma-separated string.
+	 *
+	 * @since 4.2.0
+	 * @param string|array $value parsed value from $_POST
+	 * @return string
+	 */
+	public function mutate_select2_product_ids( $value ) {
+
+		if ( is_array( $value ) ) {
+			$value = implode( ',', array_map( 'absint', $value ) );
+		}
+
+		return $value;
 	}
 
 

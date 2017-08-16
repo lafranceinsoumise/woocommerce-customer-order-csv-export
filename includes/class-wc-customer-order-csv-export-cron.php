@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Generator
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -296,8 +296,8 @@ class WC_Customer_Order_CSV_Export_Cron {
 		// filter order based on status and other filtering options
 		$order = wc_get_order( $order_id );
 
-		// no order found or order not paid
-		if ( ! $order || ! $order->is_paid() ) {
+		// no order found, order not paid, or order already exported
+		if ( ! $order || ! $order->is_paid() || 1 === (int) get_post_meta( $order_id, '_wc_customer_order_csv_export_is_exported', true ) ) {
 			return;
 		}
 

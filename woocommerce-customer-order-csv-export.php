@@ -1,15 +1,15 @@
 <?php
 /**
  * Plugin Name: WooCommerce Customer/Order CSV Export
- * Plugin URI: http://www.woothemes.com/products/ordercustomer-csv-export/
+ * Plugin URI: http://www.woocommerce.com/products/ordercustomer-csv-export/
  * Description: Easily download customers & orders in CSV format and automatically export FTP or HTTP POST on a recurring schedule
- * Author: WooThemes / SkyVerge
- * Author URI: http://www.woothemes.com
- * Version: 4.1.4
+ * Author: SkyVerge
+ * Author URI: http://www.woocommerce.com
+ * Version: 4.3.6
  * Text Domain: woocommerce-customer-order-csv-export
  * Domain Path: /i18n/languages/
  *
- * Copyright: (c) 2012-2016 SkyVerge (info@skyverge.com)
+ * Copyright: (c) 2012-2017, SkyVerge (info@skyverge.com)
  *
  * License: GNU General Public License v3.0
  * License URI: http://www.gnu.org/licenses/gpl-3.0.html
@@ -17,8 +17,10 @@
  * @package   WC-Customer-Order-CSV-Export
  * @author    SkyVerge
  * @category  Export
- * @copyright Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license   http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
+ *
+ * Woo: 18652:914de15813a903c767b55445608bf290
  */
 
 defined( 'ABSPATH' ) or exit;
@@ -41,10 +43,10 @@ if ( ! class_exists( 'SV_WC_Framework_Bootstrap' ) ) {
 	require_once( plugin_dir_path( __FILE__ ) . 'lib/skyverge/woocommerce/class-sv-wc-framework-bootstrap.php' );
 }
 
-SV_WC_Framework_Bootstrap::instance()->register_plugin( '4.5.0', __( 'WooCommerce Customer/Order CSV Export', 'woocommerce-customer-order-csv-export' ), __FILE__, 'init_woocommerce_customer_order_csv_export', array(
-	'minimum_wc_version'   => '2.4.13',
+SV_WC_Framework_Bootstrap::instance()->register_plugin( '4.6.6', __( 'WooCommerce Customer/Order CSV Export', 'woocommerce-customer-order-csv-export' ), __FILE__, 'init_woocommerce_customer_order_csv_export', array(
+	'minimum_wc_version'   => '2.5.5',
 	'minimum_wp_version'   => '4.4',
-	'backwards_compatible' => '4.4.0',
+	'backwards_compatible' => '4.4',
 ) );
 
 function init_woocommerce_customer_order_csv_export() {
@@ -119,17 +121,15 @@ function init_woocommerce_customer_order_csv_export() {
  */
 class WC_Customer_Order_CSV_Export extends SV_WC_Plugin {
 
+
 	/** plugin version number */
-	const VERSION = '4.1.4';
+	const VERSION = '4.3.6';
 
 	/** @var WC_Customer_Order_CSV_Export single instance of this plugin */
 	protected static $instance;
 
 	/** plugin id */
 	const PLUGIN_ID = 'customer_order_csv_export';
-
-	/** plugin text domain, DEPRECATED as of 3.11.0 */
-	const TEXT_DOMAIN = 'woocommerce-customer-order-csv-export';
 
 	/** @var \WC_Customer_Order_CSV_Export_Admin instance */
 	protected $admin;
@@ -155,7 +155,7 @@ class WC_Customer_Order_CSV_Export extends SV_WC_Plugin {
 	/** @var \WC_Customer_Order_CSV_Export_Download_Handler instance */
 	protected $download_handler;
 
-	/** @var \WC_Customer_Order_CSV_Export_Export_Handler instance */
+	/** @var \WC_Customer_Order_CSV_Export_Handler instance */
 	protected $export_handler;
 
 	/** @var array deprecated filter mapping, old => new **/
@@ -179,7 +179,14 @@ class WC_Customer_Order_CSV_Export extends SV_WC_Plugin {
 	 */
 	public function __construct() {
 
-		parent::__construct( self::PLUGIN_ID, self::VERSION );
+		parent::__construct(
+			self::PLUGIN_ID,
+			self::VERSION,
+			array(
+				'text_domain'        => 'woocommerce-customer-order-csv-export',
+				'display_php_notice' => true,
+			)
+		);
 
 		// required files
 		$this->includes();
@@ -473,56 +480,6 @@ class WC_Customer_Order_CSV_Export extends SV_WC_Plugin {
 	}
 
 
-	/**
-	 * Backwards compat for changing the visibility of some class instances.
-	 *
-	 * @TODO Remove this as part of WC 2.7 compat {IT 2016-05-19}
-	 *
-	 * @since 3.12.0
-	 * @param string $name
-	 */
-	public function __get( $name ) {
-
-		switch ( $name ) {
-
-			case 'admin':
-
-				/* @deprecated since 3.12.0 */
-				_deprecated_function( 'wc_customer_order_csv_export()->admin', '3.12.0', 'wc_customer_order_csv_export()->get_admin_instance()' );
-				return $this->get_admin_instance();
-
-			case 'compatibility':
-
-				/* @deprecated since 3.12.0 */
-				_deprecated_function( 'wc_customer_order_csv_export()->compatibility', '3.12.0', 'wc_customer_order_csv_export()->get_compatibility_instance()' );
-				return $this->get_compatibility_instance();
-
-			case 'cron':
-
-				/* @deprecated since 3.12.0 */
-				_deprecated_function( 'wc_customer_order_csv_export()->cron', '3.12.0', 'wc_customer_order_csv_export()->get_cron_instance()' );
-				return $this->get_cron_instance();
-		}
-
-		// you're probably doing it wrong
-		trigger_error( 'Call to undefined property ' . __CLASS__ . '::' . $name, E_USER_ERROR );
-
-		return null;
-	}
-
-
-	/**
-	 * Load plugin text domain.
-	 *
-	 * @since 3.0.0
-	 * @see SV_WC_Plugin::load_translation()
-	 */
-	public function load_translation() {
-
-		load_plugin_textdomain( 'woocommerce-customer-order-csv-export', false, dirname( plugin_basename( $this->get_file() ) ) . '/i18n/languages' );
-	}
-
-
 	/** Admin Methods ******************************************************/
 
 
@@ -675,7 +632,7 @@ class WC_Customer_Order_CSV_Export extends SV_WC_Plugin {
 	 */
 	public function get_documentation_url() {
 
-		return 'http://docs.woothemes.com/document/ordercustomer-csv-exporter/';
+		return 'http://docs.woocommerce.com/document/ordercustomer-csv-exporter/';
 	}
 
 
@@ -687,7 +644,7 @@ class WC_Customer_Order_CSV_Export extends SV_WC_Plugin {
 	 * @return string
 	 */
 	public function get_support_url() {
-		return 'http://support.woothemes.com/';
+		return 'https://woocommerce.com/my-account/tickets/';
 	}
 
 
@@ -696,10 +653,10 @@ class WC_Customer_Order_CSV_Export extends SV_WC_Plugin {
 	 *
 	 * @since 3.0.0
 	 * @see SV_WC_Plugin::is_plugin_settings()
-	 * @param string $_ unused
+	 * @param null|string $_ unused
 	 * @return string URL to the settings page
 	 */
-	public function get_settings_url( $_ = '' ) {
+	public function get_settings_url( $_ = null ) {
 
 		return admin_url( 'admin.php?page=wc_customer_order_csv_export&tab=settings' );
 	}

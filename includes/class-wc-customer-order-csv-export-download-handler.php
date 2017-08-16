@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Classes
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -54,8 +54,14 @@ class WC_Customer_Order_CSV_Export_Download_Handler {
 	 */
 	public function download_exported_file() {
 
+		check_admin_referer( 'download-export' );
+
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( __( 'You do not have the proper permissions to download this file.', 'woocommerce-customer-order-csv-export' ) );
+		}
+
 		$background_export = wc_customer_order_csv_export()->get_background_export_instance();
-		$job               = $background_export->get_job( $_GET['export_id'] );
+		$job               = $background_export->get_job( wc_clean( $_GET['export_id'] ) );
 
 		if ( ! $job ) {
 			$this->download_error( __( 'Export not found', 'woocommerce-customer-order-csv-export' ) );

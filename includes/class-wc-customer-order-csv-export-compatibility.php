@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Generator
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -36,12 +36,12 @@ defined( 'ABSPATH' ) or exit;
  */
 class WC_Customer_Order_CSV_Export_Compatibility {
 
+
 	/** @var string order export format */
 	private $orders_format;
 
 	/** @var string customer export format */
 	private $customers_format;
-
 
 	/**
 	 * Constructor
@@ -155,20 +155,20 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 	 */
 	private function get_custom_order_columns( $order_data, WC_Order $order ) {
 
-		$meta = $this->get_custom_format_meta_keys( 'orders' );
+		// data can be an array of arrays when each line item is it's own row
+		$one_row_per_item = is_array( reset( $order_data ) );
+		$meta_columns     = $this->get_custom_format_meta_keys( 'orders' );
+		$static_columns   = $this->get_custom_format_static_columns( 'orders' );
 
-		// Fetch meta
-		if ( ! empty( $meta ) ) {
+		// add meta columns
+		if ( ! empty( $meta_columns ) ) {
 
-			foreach ( $meta as $meta_key ) {
+			foreach ( $meta_columns as $meta_key ) {
 
 				$data_key   = 'meta:' . $meta_key;
-				$meta_value = maybe_serialize( get_post_meta( $order->id, $meta_key, true ) );
+				$meta_value = maybe_serialize( get_post_meta( SV_WC_Order_Compatibility::get_prop( $order, 'id' ), $meta_key, true ) );
 
-				// data can be an array of arrays when each line item is it's own row
-				$first_element = reset( $order_data );
-
-				if ( is_array( $first_element ) ) {
+				if ( $one_row_per_item ) {
 
 					foreach ( $order_data as $key => $data ) {
 						$order_data[ $key ][ $data_key ] = $meta_value;
@@ -180,6 +180,19 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 
 			}
 
+		}
+
+		// add static columns
+		if ( ! empty( $static_columns ) ) {
+			if ( $one_row_per_item ) {
+
+				foreach ( $order_data as $key => $data ) {
+					$order_data[ $key ] = array_merge( $order_data[ $key ], $static_columns );
+				}
+
+			} else {
+				$order_data = array_merge( $order_data, $static_columns );
+			}
 		}
 
 		return $order_data;
@@ -237,9 +250,8 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 				$order->get_line_total( $item )
 			);
 
-			// Add item meta
-			$item_meta = new WC_Order_Item_Meta( $item );
-			$formatted_meta = $item_meta->get_formatted();
+			// Add item meta with WC 3.1 Compatibility
+			$formatted_meta = SV_WC_Order_Compatibility::get_item_formatted_meta_data( $item );
 
 			if ( ! empty( $formatted_meta ) ) {
 
@@ -250,8 +262,8 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 					$value = str_replace( array( "\r", "\r\n", "\n" ), '', $meta['value'] );
 
 					// escape reserved chars (:;|)
-					$label = str_replace( array( ': ', ':', ';', '|' ), array( '\: ', '\:', '\;', '\|' ), $meta['label'] );
-					$value = str_replace( array( ': ', ':', ';', '|' ), array( '\: ', '\:', '\;', '\|' ), $meta['value'] );
+					$label = str_replace( array( ': ', ':', ';', '|' ), array( '\: ', '\:', '\;', '\|' ), $label );
+					$value = str_replace( array( ': ', ':', ';', '|' ), array( '\: ', '\:', '\;', '\|' ), $value );
 
 					$line_item[] = wp_kses_post( $label . ': ' . $value );
 				}
@@ -309,12 +321,12 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 			$order_data[ $line_item ]['line_item_price']     = $order_data[ $line_item ]['item_total'];
 
 			// convert country codes to full name
-			if ( isset( WC()->countries->countries[ $order->billing_country ] ) ) {
-				$order_data[ $line_item ]['billing_country'] = WC()->countries->countries[ $order->billing_country ];
+			if ( isset( WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' ) ] ) ) {
+				$order_data[ $line_item ]['billing_country'] = WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' ) ];
 			}
 
-			if ( isset( WC()->countries->countries[ $order->shipping_country ] ) ) {
-				$order_data[ $line_item ]['shipping_country'] = WC()->countries->countries[ $order->shipping_country ];
+			if ( isset( WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' ) ] ) ) {
+				$order_data[ $line_item ]['shipping_country'] = WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' ) ];
 			}
 
 			// set order ID to order number
@@ -356,8 +368,20 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 
 			$line_item .= ' x' . $item['qty'];
 
-			$item_meta = new WC_Order_Item_Meta( $item );
-			$variation = $item_meta->display( true, true );
+			if ( SV_WC_Plugin_Compatibility::is_wc_version_gte_3_1() ) {
+
+				$variation = wp_strip_all_tags( wc_display_item_meta( $item, array(
+					'before'    => '',
+					'after'     => '',
+					'separator' => "\n",
+					'echo'      => false,
+				) ) );
+
+			} else {
+
+				$item_meta = new WC_Order_Item_Meta( $item );
+				$variation = $item_meta->display( true, true );
+			}
 
 			if ( $variation ) {
 				$line_item .= ' - ' . str_replace( array( "\r", "\r\n", "\n" ), '', $variation );
@@ -370,12 +394,12 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 		$order_data['order_items'] = implode( '; ', $line_items );
 
 		// convert country codes to full name
-		if ( isset( WC()->countries->countries[ $order->billing_country ] ) ) {
-			$order_data['billing_country'] = WC()->countries->countries[ $order->billing_country ];
+		if ( isset( WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' ) ] ) ) {
+			$order_data['billing_country'] = WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' ) ];
 		}
 
-		if ( isset( WC()->countries->countries[ $order->shipping_country ] ) ) {
-			$order_data['shipping_country'] = WC()->countries->countries[ $order->shipping_country ];
+		if ( isset( WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' ) ] ) ) {
+			$order_data['shipping_country'] = WC()->countries->countries[ SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' ) ];
 		}
 
 		// set order ID to order number
@@ -451,7 +475,7 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 		$meta = array();
 
 		// Include all meta
-		if ( 'yes' === get_option( 'wc_customer_order_csv_export_' . $export_type . '_custom_format_include_all_meta' ) ) {
+		if ( 'yes' === get_option( "wc_customer_order_csv_export_{$export_type}_custom_format_include_all_meta" ) ) {
 
 			$all_meta = wc_customer_order_csv_export()->get_formats_instance()->get_all_meta_keys( $export_type );
 
@@ -462,16 +486,15 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 					$meta[] = $meta_key;
 				}
 			}
-		}
 
 		// Include some meta only, if defined
-		else {
+		} else {
 
-			$column_mapping = (array) get_option( 'wc_customer_order_csv_export_' . $export_type . '_custom_format_mapping' );
+			$column_mapping = (array) get_option( "wc_customer_order_csv_export_{$export_type}_custom_format_mapping" );
 
 			foreach ( $column_mapping as $column ) {
 
-				if ( 'meta' === $column['source'] ) {
+				if ( isset( $column['source'] ) && 'meta' === $column['source'] ) {
 					$meta[] = $column['meta_key'];
 				}
 			}
@@ -479,6 +502,30 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 		}
 
 		return $meta;
+	}
+
+
+	/**
+	 * Returns static columns that should be included in the custom export format
+	 *
+	 * @since 4.3.0
+	 * @param string $export_type
+	 * @return array
+	 */
+	private function get_custom_format_static_columns( $export_type ) {
+
+		$statics = array();
+
+		$column_mapping = (array) get_option( 'wc_customer_order_csv_export_' . $export_type . '_custom_format_mapping' );
+
+		foreach ( $column_mapping as $column ) {
+
+			if ( isset( $column['source'] ) && 'static' === $column['source'] ) {
+				$statics[ $column['name'] ] = $column['static_value'];
+			}
+		}
+
+		return $statics;
 	}
 
 
@@ -492,18 +539,21 @@ class WC_Customer_Order_CSV_Export_Compatibility {
 	 */
 	public function modify_customer_row( $customer_data, $user ) {
 
-		if ( 'custom' === $this->customers_format && $user->ID ) {
+		if ( 'custom' === $this->customers_format ) {
 
-			$meta = $this->get_custom_format_meta_keys( 'customers' );
+			if ( $user->ID ) {
+				$meta = $this->get_custom_format_meta_keys( 'customers' );
 
-			// Fetch meta
-			if ( ! empty( $meta ) ) {
+				// Fetch meta
+				if ( ! empty( $meta ) ) {
 
-				foreach ( $meta as $meta_key ) {
-					$customer_data[ 'meta:' . $meta_key ] = maybe_serialize( get_user_meta( $user->ID, $meta_key, true ) );
+					foreach ( $meta as $meta_key ) {
+						$customer_data[ 'meta:' . $meta_key ] = maybe_serialize( get_user_meta( $user->ID, $meta_key, true ) );
+					}
 				}
 			}
 
+			$customer_data = array_merge( $customer_data, $this->get_custom_format_static_columns( 'customers' ) );
 		}
 
 		return $customer_data;

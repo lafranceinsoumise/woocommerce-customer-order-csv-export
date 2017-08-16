@@ -14,11 +14,11 @@
  *
  * Do not edit or add to this file if you wish to upgrade WooCommerce Customer/Order CSV Export to newer
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
- * needs please refer to http://docs.woothemes.com/document/ordercustomer-csv-exporter/
+ * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
  * @package     WC-Customer-Order-CSV-Export/Admin
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2016, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -319,8 +319,9 @@ class WC_Customer_Order_CSV_Export_Admin_Custom_Format_Builder {
 									case 'source' :
 
 										$html_column_options = '';
-										$value               = $column[ $field ];
-										$meta_key            = 'meta' === $value && isset( $column['meta_key'] ) ? $column['meta_key'] : '';
+										$value               = isset( $column[ $field ] ) ? $column[ $field ] : '';
+										$meta_key            = 'meta'   === $value && isset( $column['meta_key'] )     ? $column['meta_key']     : '';
+										$static_value        = 'static' === $value && isset( $column['static_value'] ) ? $column['static_value'] : '';
 
 										// trick WC into thinking the hidden placeholder row select is already enhanced.
 										// this will allow us to later trigger enhancing the field when a new row is added,
@@ -335,15 +336,23 @@ class WC_Customer_Order_CSV_Export_Admin_Custom_Format_Builder {
 
 										<td class="data">
 
-											<select name="<?php echo esc_attr( $options['id'] ); ?>[<?php echo esc_attr( $mapping_key ); ?>][source]" class="js-field-key wc-enhanced-select-nostd <?php echo $enhanced; ?>">
-												<option value=""><?php esc_html_e( 'Select a value', 'woocommerce-customer-order-csv-export' ); ?></option>
+											<select name="<?php echo esc_attr( $options['id'] ); ?>[<?php echo esc_attr( $mapping_key ); ?>][source]" class="js-field-key wc-enhanced-select-nostd <?php echo $enhanced; ?>" data-placeholder="<?php esc_attr_e( 'Select a value', 'woocommerce-customer-order-csv-export' ); ?>">
+												<?php if ( SV_WC_Plugin_Compatibility::is_wc_version_lt_3_0() ) : /* select2 3.5 (supplied with WC < 3.0) requires an empty placeholder option */ ?>
+												<option value=""></option>
+												<?php endif; ?>
 												<?php echo $html_column_options; ?>
 												<option value="meta" <?php selected( 'meta', $value ); ?>><?php esc_html_e( 'Meta field...', 'woocommerce-customer-order-csv-export' ); ?></option>
+												<option value="static" <?php selected( 'static', $value ); ?>><?php esc_html_e( 'Static value...', 'woocommerce-customer-order-csv-export' ); ?></option>
 											</select>
 
 											<label class="js-field-meta-key-label <?php echo ( 'meta' !== $value ? 'hide' : '' ); ?>">
 												<?php esc_html_e( 'Meta key:', 'woocommerce-customer-order-csv-export' ); ?>
 												<input type="text" name="<?php echo esc_attr( $options['id'] ); ?>[<?php echo esc_attr( $mapping_key ); ?>][meta_key]" value="<?php echo esc_attr( $meta_key ); ?>" class="js-field-meta-key" />
+											</label>
+
+											<label class="js-field-static-value-label <?php echo ( 'static' !== $value ? 'hide' : '' ); ?>">
+												<?php esc_html_e( 'Value:', 'woocommerce-customer-order-csv-export' ); ?>
+												<input type="text" name="<?php echo esc_attr( $options['id'] ); ?>[<?php echo esc_attr( $mapping_key ); ?>][static_value]" value="<?php echo esc_attr( $static_value ); ?>" class="js-field-static-value" />
 											</label>
 
 										</td>
@@ -503,6 +512,8 @@ class WC_Customer_Order_CSV_Export_Admin_Custom_Format_Builder {
 	 * @param mixed $value
 	 * @param string $option
 	 * @param mixed $raw_value
+	 *
+	 * @return mixed
 	 */
 	public function restore_tab_value( $value, $option, $raw_value ) {
 
@@ -511,24 +522,6 @@ class WC_Customer_Order_CSV_Export_Admin_Custom_Format_Builder {
 		}
 
 		return $value;
-	}
-
-
-	/**
-	 * Output column mapper
-	 *
-	 * @since 4.0.0
-	 * @deprecated 4.1.0
-	 * @param array $options
-	 */
-	public function render_column_mapping( $options ) {
-
-		_deprecated_function( 'wc_customer_order_csv_export()->get_admin_instance()->get_column_mapper_instance()->render_column_mapping()',
-			'4.1.0',
- 			'wc_customer_order_csv_export()->get_admin_instance()->get_custom_format_builder_instance()->render_field_mapping()'
-		);
-
-		return render_field_mapping( $options );
 	}
 
 
