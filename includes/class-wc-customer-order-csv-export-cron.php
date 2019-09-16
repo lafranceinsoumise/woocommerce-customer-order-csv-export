@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Generator
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Customer/Order CSV Export Cron Class
@@ -43,26 +44,26 @@ class WC_Customer_Order_CSV_Export_Cron {
 	public function __construct() {
 
 		// Add custom schedule, e.g. every 10 minutes
-		add_filter( 'cron_schedules', array( $this, 'add_auto_export_schedules' ) );
+		add_filter( 'cron_schedules', [ $this, 'add_auto_export_schedules' ] );
 
 		// Schedule auto-update events if they don't exist, run in both frontend and
 		// backend so events are still scheduled when an admin reactivates the plugin
-		add_action( 'init', array( $this, 'add_scheduled_export' ) );
+		add_action( 'init', [ $this, 'add_scheduled_export' ] );
 
 		// schedule cleanup of expired exports
-		add_action( 'init', array( $this, 'schedule_export_cleanup' ) );
+		add_action( 'init', [ $this, 'schedule_export_cleanup' ] );
 
 		// cleanup expired exports
-		add_action( 'wc_customer_order_csv_export_scheduled_export_cleanup', array( $this, 'cleanup_exports' ) );
+		add_action( 'wc_customer_order_csv_export_scheduled_export_cleanup', [ $this, 'cleanup_exports' ] );
 
 		// Trigger export + upload of non-exported orders, wp-cron fires this action
 		// on the given recurring schedule
-		add_action( 'wc_customer_order_csv_export_auto_export_orders',    array( $this, 'auto_export_orders' ) );
-		add_action( 'wc_customer_order_csv_export_auto_export_customers', array( $this, 'auto_export_customers' ) );
+		add_action( 'wc_customer_order_csv_export_auto_export_orders',    [ $this, 'auto_export_orders' ] );
+		add_action( 'wc_customer_order_csv_export_auto_export_customers', [ $this, 'auto_export_customers' ] );
 
 		// trigger order export when an order is processed or status updates
-		add_action( 'woocommerce_checkout_order_processed', array( $this, 'auto_export_order' ) );
-		add_action( 'woocommerce_order_status_changed',     array( $this, 'auto_export_order' ) );
+		add_action( 'woocommerce_checkout_order_processed', [ $this, 'auto_export_order' ] );
+		add_action( 'woocommerce_order_status_changed',     [ $this, 'auto_export_order' ] );
 	}
 
 
@@ -109,7 +110,7 @@ class WC_Customer_Order_CSV_Export_Cron {
 	 */
 	public function add_auto_export_schedules( $schedules ) {
 
-		foreach ( array( 'orders', 'customers' ) as $export_type ) {
+		foreach ( [ 'orders', 'customers' ] as $export_type ) {
 
 			if ( $this->scheduled_exports_enabled( $export_type ) ) {
 
@@ -117,10 +118,10 @@ class WC_Customer_Order_CSV_Export_Cron {
 
 				if ( $export_interval ) {
 
-					$schedules[ 'wc_customer_order_csv_export_' . $export_type . '_auto_export_interval' ] = array(
+					$schedules[ 'wc_customer_order_csv_export_' . $export_type . '_auto_export_interval' ] = [
 						'interval' => (int) $export_interval * 60,
 						'display'  => sprintf( _n(  'Every minute', 'Every %d minutes', (int) $export_interval, 'woocommerce-customer-order-csv-export' ), (int) $export_interval )
-					);
+					];
 				}
 			}
 		}
@@ -139,7 +140,7 @@ class WC_Customer_Order_CSV_Export_Cron {
 	 */
 	public function add_scheduled_export() {
 
-		foreach ( array( 'orders', 'customers' ) as $export_type ) {
+		foreach ( [ 'orders', 'customers' ] as $export_type ) {
 
 			if ( $this->scheduled_exports_enabled( $export_type ) ) {
 
@@ -197,24 +198,39 @@ class WC_Customer_Order_CSV_Export_Cron {
 
 		require_once( wc_customer_order_csv_export()->get_plugin_path() . '/includes/class-wc-customer-order-csv-export-query-parser.php' );
 
-		$order_ids = WC_Customer_Order_CSV_Export_Query_Parser::parse_orders_export_query( array(
+		$order_ids = WC_Customer_Order_CSV_Export_Query_Parser::parse_orders_export_query( [
 			'statuses'           => get_option( 'wc_customer_order_csv_export_orders_auto_export_statuses' ),
 			'products'           => get_option( 'wc_customer_order_csv_export_orders_auto_export_products' ),
 			'product_categories' => get_option( 'wc_customer_order_csv_export_orders_auto_export_product_categories' ),
 			'not_exported'       => $export_new_orders_only,
-		) );
+		] );
 
 		if ( ! empty( $order_ids ) ) {
 
+			$args = [
+				'type'       => 'orders',
+				'method'     => $export_method,
+				'invocation' => 'auto',
+			];
+
+			if ( $this->is_duplicate_export( $order_ids, $args ) ) {
+				return;
+			}
+
+			/**
+			 * Filters the order IDs that are auto-exported.
+			 *
+			 * @since 4.5.0
+			 *
+			 * @param int[] $order_ids the order ids being auto-exported
+			 */
+			$order_ids = apply_filters( 'wc_customer_order_csv_auto_export_ids', $order_ids );
+
 			try {
 
-				wc_customer_order_csv_export()->get_export_handler_instance()->start_export( $order_ids, array(
-					'type'       => 'orders',
-					'method'     => $export_method,
-					'invocation' => 'auto',
-				) );
+				wc_customer_order_csv_export()->get_export_handler_instance()->start_export( $order_ids, $args );
 
-			} catch ( SV_WC_Plugin_Exception $e ) {
+			} catch ( Framework\SV_WC_Plugin_Exception $e ) {
 
 				// log errors
 				/* translators: Placeholders: %s - error message */
@@ -249,35 +265,109 @@ class WC_Customer_Order_CSV_Export_Cron {
 
 		require_once( wc_customer_order_csv_export()->get_plugin_path() . '/includes/class-wc-customer-order-csv-export-query-parser.php' );
 
-		$customers = WC_Customer_Order_CSV_Export_Query_Parser::parse_customers_export_query( array(
+		$customers = WC_Customer_Order_CSV_Export_Query_Parser::parse_customers_export_query( [
 			'not_exported' => $export_new_customers_only,
-		) );
+		] );
 
 		if ( ! empty( $customers ) ) {
 
+			$args = [
+				'type'       => 'customers',
+				'method'     => $export_method,
+				'invocation' => 'auto',
+			];
+
+			if ( $this->is_duplicate_export( $customers, $args ) ) {
+				return;
+			}
+
+			/**
+			 * Filters the customers that are going to be auto-exported.
+			 *
+			 * @since 4.5.0
+			 *
+			 * @param array $customers the customers being auto-exported, each array element could be one of:
+			 *     @type int registered customer id
+			 *     @type array guest customer array with email and order ID
+			 */
+			$customers = apply_filters( 'wc_customer_order_csv_auto_export_customers', $customers );
+
 			try {
 
-				wc_customer_order_csv_export()->get_export_handler_instance()->start_export( $customers, array(
-					'type'       => 'customers',
-					'method'     => $export_method,
-					'invocation' => 'auto',
-				) );
+				wc_customer_order_csv_export()->get_export_handler_instance()->start_export( $customers, $args );
 
-			} catch ( SV_WC_Plugin_Exception $e ) {
+			} catch ( Framework\SV_WC_Plugin_Exception $e ) {
 
 				// log errors
 				/* translators: Placeholders: %s - error message */
 				wc_customer_order_csv_export()->log( sprintf( esc_html__( 'Scheduled customers export failed: %s', 'woocommerce-customer-order-csv-export' ), $e->getMessage() ) );
 
 				// Notify the admin that exports are failing
-				$failure_notices = get_option( 'wc_customer_order_csv_export_failure_notices', array() );
+				$failure_notices = get_option( 'wc_customer_order_csv_export_failure_notices', [] );
 
-				$failure_notices['export'] = array( 'multiple_failures' => true );
+				$failure_notices['export'] = [ 'multiple_failures' => true ];
 
 				update_option( 'wc_customer_order_csv_export_failure_notices', $failure_notices );
 
 			}
 		}
+	}
+
+
+	/**
+	 * Determines if a potential new export job is a duplicate of one already in
+	 * the queue.
+	 *
+	 * This serves as a way to combat against cron events being fired multiple
+	 * times, as can happen in the wonderful world of WordPress. Here we:
+	 *
+	 *     1. Generate a fingerprint for the new job based on the args and current time.
+	 *     2. Delay processing for a small amount of random time
+	 *     3. Check if there are any existing jobs with a matching fingerprint
+	 *     4. Whichever concurrent request finished first will block the other from processing
+	 */
+	protected function is_duplicate_export( $object_ids, $export_args ) {
+
+		$timestamp    = time();
+		$fingerprint  = $this->generate_auto_export_fingerprint( $object_ids, $export_args, $timestamp );
+		$is_duplicate = false;
+
+		// add a random artificial delay
+		usleep( rand( 250000, 500000 ) );
+
+		if ( $existing_exports = wc_customer_order_csv_export()->get_export_handler_instance()->get_exports( [ 'status' => [ 'queued', 'processing' ], ] ) ) {
+
+			foreach ( $existing_exports as $export ) {
+
+				$export_args = [
+					'type'       => $export->type,
+					'method'     => $export->method,
+					'invocation' => $export->invocation,
+				];
+
+				if ( hash_equals( $fingerprint, $this->generate_auto_export_fingerprint( $export->object_ids, $export_args, $timestamp ) ) ) {
+					$is_duplicate = true;
+				}
+			}
+		}
+
+		return $is_duplicate;
+	}
+
+
+	/**
+	 * Generates a fingerprint hash for new export jobs to help detect duplicates.
+	 *
+	 * @since 4.4.0
+	 *
+	 * @param array $object_ids export job object IDs
+	 * @param array $export_args export job args
+	 * @param int $timestamp when this fingerprint was generated
+	 * @return string
+	 */
+	protected function generate_auto_export_fingerprint( $object_ids, $export_args, $timestamp ) {
+
+		return md5( json_encode( $object_ids ) . json_encode( $export_args ) . $timestamp );
 	}
 
 
@@ -311,7 +401,7 @@ class WC_Customer_Order_CSV_Export_Cron {
 		// bail out if order does not contain required products
 		if ( ! empty( $product_ids ) ) {
 
-			$order_ids = WC_Customer_Order_CSV_Export_Query_Parser::filter_orders_containing_products( array( $order_id ), $product_ids );
+			$order_ids = WC_Customer_Order_CSV_Export_Query_Parser::filter_orders_containing_products( [ $order_id ], $product_ids );
 
 			if ( empty( $order_ids ) ) {
 				return;
@@ -321,23 +411,29 @@ class WC_Customer_Order_CSV_Export_Cron {
 		// bail out if order does not contain products in required categories
 		if ( ! empty( $product_categories ) ) {
 
-			$order_ids = WC_Customer_Order_CSV_Export_Query_Parser::filter_orders_containing_product_categories( array( $order_id ), $product_categories );
+			$order_ids = WC_Customer_Order_CSV_Export_Query_Parser::filter_orders_containing_product_categories( [ $order_id ], $product_categories );
 
 			if ( empty( $order_ids ) ) {
 				return;
 			}
 		}
 
+		$args = [
+			'type'       => 'orders',
+			'method'     => get_option( 'wc_customer_order_csv_export_orders_auto_export_method' ),
+			'invocation' => 'auto',
+		];
+
+		if ( $this->is_duplicate_export( [ $order_id ], $args ) ) {
+			return;
+		}
+
 		try {
 
 			// whoa, we got here! kick it off!
-			$export_handler->start_export( $order_id, array(
-				'type'       => 'orders',
-				'method'     => get_option( 'wc_customer_order_csv_export_orders_auto_export_method' ),
-				'invocation' => 'auto',
-			) );
+			$export_handler->start_export( $order_id, $args );
 
-		} catch ( SV_WC_Plugin_Exception $e ) {
+		} catch ( Framework\SV_WC_Plugin_Exception $e ) {
 
 			// log errors
 			/* translators: Placeholders: %s - error message */
@@ -375,7 +471,7 @@ class WC_Customer_Order_CSV_Export_Cron {
 
 
 	/**
-	 * Clean up (remove) exports older than 14 days
+	 * Clean up (remove) exports older than the maximum age (14 days by default)
 	 *
 	 * @since 4.0.0
 	 */

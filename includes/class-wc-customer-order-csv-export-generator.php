@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Generator
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Customer/Order CSV Export Generator
@@ -37,8 +38,11 @@ class WC_Customer_Order_CSV_Export_Generator {
 	/** @var string export type */
 	public $export_type;
 
-	/** @var string export format */
+	/** @var string export format ("custom" for all custom formats) */
 	public $export_format;
+
+	/** @var string custom export format (selected custom format key, if a custom format is selected) */
+	public $custom_export_format;
 
 	/** @var array format definition */
 	public $format_definition;
@@ -78,6 +82,8 @@ class WC_Customer_Order_CSV_Export_Generator {
 		 * @param \WC_Customer_Order_CSV_Export_Generator $this, generator instance
 		 */
 		$this->export_format = apply_filters( 'wc_customer_order_csv_export_format', $export_format, $this );
+
+		$this->custom_export_format = get_option( 'wc_customer_order_csv_export_' . $export_type . '_custom_format', 'custom' );
 
 		// get format definition
 		$this->format_definition = wc_customer_order_csv_export()->get_formats_instance()->get_format( $export_type, $this->export_format );
@@ -130,11 +136,11 @@ class WC_Customer_Order_CSV_Export_Generator {
 			$header = $this->get_header();
 
 			if ( null !== $header ) {
-				fputs( $stream, $header );
+				fwrite( $stream, $header );
 			}
 		}
 
-		$order_data = array();
+		$order_data = [];
 
 		// iterate through order IDs
 		foreach ( $ids as $order_id ) {
@@ -157,13 +163,21 @@ class WC_Customer_Order_CSV_Export_Generator {
 				// iterate through each line item row and write it
 				foreach ( $data as $row ) {
 
-					fputs( $stream, $this->get_row_csv( $row, $headers ) );
+					$csv_row = $this->get_row_csv( $row, $headers );
+
+					if ( ! empty( $csv_row ) ) {
+						fwrite( $stream, $csv_row );
+					}
 				}
 
 			} else {
 
 				// otherwise simply write the single order row
-				fputs( $stream, $this->get_row_csv( $data, $headers ) );
+				$csv_row = $this->get_row_csv( $data, $headers );
+
+				if ( ! empty( $csv_row ) ) {
+					fwrite( $stream, $csv_row );
+				}
 			}
 		}
 
@@ -179,8 +193,9 @@ class WC_Customer_Order_CSV_Export_Generator {
 		 * @param array $order_data An array of the order data to write to to the CSV
 		 * @param array $order_ids The order ids.
 		 * @param string $export_format The order export format.
+		 * @param string $custom_export_format The order custom export format, if any.
 		 */
-		return apply_filters( 'wc_customer_order_csv_export_get_orders_csv', $csv, $order_data, $ids, $this->export_format );
+		return apply_filters( 'wc_customer_order_csv_export_get_orders_csv', $csv, $order_data, $ids, $this->export_format, $this->custom_export_format );
 	}
 
 
@@ -236,15 +251,15 @@ class WC_Customer_Order_CSV_Export_Generator {
 		}
 
 		$is_json    = 'json' === $this->format_definition['items_format'];
-		$line_items = $shipping_items = $fee_items = $tax_items = $coupon_items = array();
+		$line_items = $shipping_items = $fee_items = $tax_items = $coupon_items = [];
 
 		// get line items
 		foreach ( $order->get_items() as $item_id => $item ) {
 
 			if ( $is_json ) {
 
-				$meta           = array();
-				$meta_formatted = SV_WC_Order_Compatibility::get_item_formatted_meta_data( $item, '_' );
+				$meta           = [];
+				$meta_formatted = Framework\SV_WC_Order_Compatibility::get_item_formatted_meta_data( $item, '_' );
 
 				foreach ( $meta_formatted as $meta_key => $formatted_meta ) {
 					// we need to encode quotes as escaping them will break CSV cells in JSON format
@@ -255,17 +270,19 @@ class WC_Customer_Order_CSV_Export_Generator {
 
 				// make sure we filter really late as to not interfere with other plugins, such as
 				// Product Add-Ons
-				add_filter( 'woocommerce_attribute_label',               array( $this, 'escape_reserved_meta_chars' ), 9999 );
-				add_filter( 'woocommerce_order_item_display_meta_value', array( $this, 'escape_reserved_meta_chars' ), 9999 );
+				add_filter( 'woocommerce_attribute_label',               [ $this, 'escape_reserved_meta_chars' ], 9999 );
+				add_filter( 'woocommerce_order_item_display_meta_value', [ $this, 'escape_reserved_meta_chars' ], 9999 );
 
-				if ( SV_WC_Plugin_Compatibility::is_wc_version_gte_3_1() ) {
+				if ( Framework\SV_WC_Plugin_Compatibility::is_wc_version_gte_3_1() ) {
 
-					$meta = wc_display_item_meta( $item, array(
-						'before'    => '',
-						'after'     => '',
-						'separator' => "\n",
-						'echo'      => false,
-					) );
+					$meta_data    = $item->get_formatted_meta_data( '_', true );
+					$display_meta = [];
+
+					foreach ( $meta_data as $meta ) {
+						$display_meta[] = "{$meta->display_key}: {$meta->display_value}";
+					}
+
+					$meta = implode( '', $display_meta );
 
 				} else {
 
@@ -273,8 +290,8 @@ class WC_Customer_Order_CSV_Export_Generator {
 					$meta      = $item_meta->display( true, true );
 				}
 
-				remove_filter( 'woocommerce_attribute_label',               array( $this, 'escape_reserved_meta_chars' ), 9999 );
-				remove_filter( 'woocommerce_order_item_display_meta_value', array( $this, 'escape_reserved_meta_chars' ), 9999 );
+				remove_filter( 'woocommerce_attribute_label',               [ $this, 'escape_reserved_meta_chars' ], 9999 );
+				remove_filter( 'woocommerce_order_item_display_meta_value', [ $this, 'escape_reserved_meta_chars' ], 9999 );
 
 				if ( $meta ) {
 
@@ -282,30 +299,30 @@ class WC_Customer_Order_CSV_Export_Generator {
 					$meta = str_replace( ': ', '=', wp_strip_all_tags( $meta ) );
 
 					// remove any newlines generated by WC_Order_Item_Meta::display()
-					$meta = str_replace( array( ", \r\n", ", \r", ", \n", "\r\n", "\r", "\n" ), ',', $meta );
+					$meta = str_replace( [ ", \r\n", ", \r", ", \n", "\r\n", "\r", "\n" ], ',', $meta );
 
 					// remove any html entities
 					$meta = preg_replace( '/\&(?:[a-z,A-Z,0-9]+|#\d+|#x[0-9a-f]+);/', '', $meta );
 
 					// re-insert colons and newlines
-					$meta = str_replace( array( '[INSERT_COLON_HERE]', '[INSERT_NEWLINE_HERE]' ), array( ':', "\n" ), $meta );
+					$meta = str_replace( [ '[INSERT_COLON_HERE]', '[INSERT_NEWLINE_HERE]' ], [ ':', "\n" ], $meta );
 				}
 			}
 
 			// Give the product ID and SKU initial values in case they're not overwritten.
 			// this means the product doesn't exist, so it could have been deleted, BUT
 			// we should set the SKU to a value so CSV import could allow these orders to be imported
-			$product     = SV_WC_Plugin_Compatibility::is_wc_version_gte_3_1() ? $item->get_product() : $order->get_product_from_item( $item );
+			$product     = Framework\SV_WC_Plugin_Compatibility::is_wc_version_gte_3_1() ? $item->get_product() : $order->get_product_from_item( $item );
 			$product_id  = 0;
 			$product_sku = 'unknown_product';
 
 			// Check if the product exists.
-			if ( is_object( $product ) ) {
+			if ( $product instanceof WC_Product ) {
 				$product_id  = $product->get_id();
 				$product_sku = $product->get_sku();
 			}
 
-			$line_item = array(
+			$line_item = [
 				// fields following WC API conventions (except refunded and refunded_qty), see WC_API_Orders
 				'id'           => $item_id,
 				// we need to encode quotes as escaping them will break CSV cells in JSON format
@@ -320,7 +337,7 @@ class WC_Customer_Order_CSV_Export_Generator {
 				'refunded'     => wc_format_decimal( $order->get_total_refunded_for_item( $item_id ), 2 ),
 				'refunded_qty' => $order->get_qty_refunded_for_item( $item_id ),
 				'meta'         => $meta,
-			);
+			];
 
 			// tax data is only supported in JSON-based formats, as encoding/escaping it reliably in
 			// a pipe-delimited format is quite messy
@@ -348,19 +365,20 @@ class WC_Customer_Order_CSV_Export_Generator {
 			$line_item = apply_filters( 'wc_customer_order_csv_export_order_line_item', $line_item, $item, $product, $order, $this );
 
 			if ( ! empty( $line_item ) ) {
-				$line_items[] = $is_json || 'item' === $this->format_definition['row_type'] ? $line_item : $this->pipe_delimit_item( $line_item );
+				$row_type     = $this->format_definition['row_type'];
+				$line_items[] = $is_json || 'item' === $row_type ? $line_item : $this->pipe_delimit_item( $line_item );
 			}
 		}
 
 		// get shipping items
 		foreach ( $order->get_shipping_methods() as $shipping_item_id => $shipping ) {
 
-			$shipping_item = array(
+			$shipping_item = [
 				'id'           => $shipping_item_id,
 				'method_id'    => $shipping['method_id'],
 				'method_title' => $shipping['name'],
 				'total'        => wc_format_decimal( $shipping['cost'], 2 ),
-			);
+			];
 
 			// tax data is only supported in JSON-based formats, as encoding/escaping it reliably in
 			// a pipe-delimited format is quite messy
@@ -395,13 +413,13 @@ class WC_Customer_Order_CSV_Export_Generator {
 
 		foreach ( $order->get_fees() as $fee_item_id => $fee ) {
 
-			$fee_item = array(
+			$fee_item = [
 				'id'        => $fee_item_id,
 				'title'     => $fee['name'],
 				'tax_class' => ( ! empty( $fee['tax_class'] ) ) ? $fee['tax_class'] : null,
 				'total'     => wc_format_decimal( $order->get_line_total( $fee ), 2 ),
 				'total_tax' => wc_format_decimal( $order->get_line_tax( $fee ), 2 ),
-			);
+			];
 
 			// tax data is only supported in JSON-based formats, as encoding/escaping it reliably in
 			// a pipe-delimited format is quite messy
@@ -439,14 +457,14 @@ class WC_Customer_Order_CSV_Export_Generator {
 		// get tax items
 		foreach ( $order->get_tax_totals() as $tax_code => $tax ) {
 
-			$tax_item = array(
+			$tax_item = [
 				'id'       => $tax->id,
 				'rate_id'  => $tax->rate_id,
 				'code'     => $tax_code,
 				'title'    => $tax->label,
 				'total'    => wc_format_decimal( $tax->amount, 2 ),
 				'compound' => (bool) $tax->is_compound,
-			);
+			];
 
 			/**
 			 * CSV Order Export Tax Line Item.
@@ -474,14 +492,14 @@ class WC_Customer_Order_CSV_Export_Generator {
 		foreach ( $order->get_items( 'coupon' ) as $coupon_item_id => $coupon ) {
 
 			$_coupon     = new WC_Coupon( $coupon['name'] );
-			$coupon_post = get_post( SV_WC_Data_Compatibility::get_prop( $_coupon, 'id' ) );
+			$coupon_post = get_post( Framework\SV_WC_Data_Compatibility::get_prop( $_coupon, 'id' ) );
 
-			$coupon_item = array(
+			$coupon_item = [
 				'id'          => $coupon_item_id,
 				'code'        => $coupon['name'],
 				'amount'      => wc_format_decimal( $coupon['discount_amount'], 2 ),
 				'description' => is_object( $coupon_post ) ? $coupon_post->post_excerpt : '',
-			);
+			];
 
 			/**
 			 * CSV Order Export Coupon Line Item.
@@ -506,38 +524,25 @@ class WC_Customer_Order_CSV_Export_Generator {
 
 
 		// add refunds
-		$refunds = array();
+		$refunds = [];
 
 		foreach ( $order->get_refunds() as $refund ) {
 
-			if ( SV_WC_Plugin_Compatibility::is_wc_version_gte_3_0() ) {
-
-				$refund_data = array(
-					'id'         => $refund->get_id(),
-					'date'       => $this->format_date( $refund->get_date_created()->date( 'Y-m-d H:i:s' ) ),
-					'amount'     => wc_format_decimal( $refund->get_amount(), 2 ),
-					'reason'     => $refund->get_reason(),
-				);
-
-			} else {
-
-				$refund_data = array(
-					'id'         => $refund->id,
-					'date'       => $this->format_date( $refund->date ),
-					'amount'     => wc_format_decimal( $refund->get_refund_amount(), 2 ),
-					'reason'     => $refund->get_refund_reason(),
-				);
-			}
-
+			$refund_data = [
+				'id'         => $refund->get_id(),
+				'date'       => $this->format_date( $refund->get_date_created()->date( 'Y-m-d H:i:s' ) ),
+				'amount'     => wc_format_decimal( $refund->get_amount(), 2 ),
+				'reason'     => $refund->get_reason(),
+			];
 
 			// line items data for refunds is only supported in JSON-based formats, as encoding/escaping it reliably in
 			// a pipe-delimited format is quite messy
 			if ( $is_json ) {
 
-				$refunded_items = array();
+				$refunded_items = [];
 
 				// add line items
-				foreach ( $refund->get_items( array( 'line_item', 'fee', 'shipping' ) ) as $item_id => $item ) {
+				foreach ( $refund->get_items( [ 'line_item', 'fee', 'shipping' ] ) as $item_id => $item ) {
 
 					$refund_amount = abs( isset( $item['line_total'] ) ? $item['line_total'] : ( isset( $item['cost'] ) ? $item['cost'] : null ) );
 
@@ -546,10 +551,10 @@ class WC_Customer_Order_CSV_Export_Generator {
 						continue;
 					}
 
-					$refunded_item = array(
+					$refunded_item = [
 						'refunded_item_id' => $item['refunded_item_id'],
 						'refund_total'     => $refund_amount,
-					);
+					];
 
 					// tax data is only supported in JSON-based formats, as encoding/escaping it reliably in
 					// a pipe-delimited format is quite messy
@@ -602,18 +607,15 @@ class WC_Customer_Order_CSV_Export_Generator {
 			$refunds[] = $is_json ? $refund_data : $this->pipe_delimit_item( $refund_data );
 		}
 
-		$download_permissions_granted = SV_WC_Order_Compatibility::get_meta( $order, '_download_permissions_granted' );
+		// grant download permissions if the order both permits and contains a downloadable item
+		$download_permissions_granted = ( $order->is_download_permitted() && $order->has_downloadable_item() );
 
-		if ( SV_WC_Plugin_Compatibility::is_wc_version_gte_3_0() ) {
-			$order_date = is_callable( array( $order->get_date_created(), 'date' ) ) ? $order->get_date_created()->date( 'Y-m-d H:i:s' ) : null;
-		} else {
-			$order_date = $order->order_date;
-		}
+		$order_date = is_callable( [ $order->get_date_created(), 'date' ] ) ? $order->get_date_created()->date( 'Y-m-d H:i:s' ) : null;
 
-		$order_data = array(
-			'order_id'               => SV_WC_Order_Compatibility::get_prop( $order, 'id' ),
-			'order_number_formatted' => SV_WC_Order_Compatibility::get_meta( $order, '_order_number_formatted', true ),
-			'order_number'           => SV_WC_Order_Compatibility::get_meta( $order, '_order_number', true ),
+		$order_data = [
+			'order_id'               => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'id' ),
+			'order_number_formatted' => Framework\SV_WC_Order_Compatibility::get_meta( $order, '_order_number_formatted', true ),
+			'order_number'           => Framework\SV_WC_Order_Compatibility::get_meta( $order, '_order_number', true ),
 			'order_date'             => $this->format_date( $order_date ),
 			'status'                 => $order->get_status(),
 			'shipping_total'         => $order->get_total_shipping(),
@@ -624,35 +626,35 @@ class WC_Customer_Order_CSV_Export_Generator {
 			'discount_total'         => wc_format_decimal( $order->get_total_discount(), 2 ),
 			'order_total'            => wc_format_decimal( $order->get_total(), 2 ),
 			'refunded_total'         => wc_format_decimal( $order->get_total_refunded(), 2 ),
-			'order_currency'         => SV_WC_Order_Compatibility::get_prop( $order, 'currency', 'view' ),
-			'payment_method'         => SV_WC_Order_Compatibility::get_prop( $order, 'payment_method' ),
+			'order_currency'         => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'currency', 'view' ),
+			'payment_method'         => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'payment_method' ),
 			'shipping_method'        => $order->get_shipping_method(),
 			'customer_id'            => $order->get_user_id(),
-			'billing_first_name'     => SV_WC_Order_Compatibility::get_prop( $order, 'billing_first_name' ),
-			'billing_last_name'      => SV_WC_Order_Compatibility::get_prop( $order, 'billing_last_name' ),
+			'billing_first_name'     => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_first_name' ),
+			'billing_last_name'      => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_last_name' ),
 			'billing_full_name'      => $order->get_formatted_billing_full_name(),
-			'billing_company'        => SV_WC_Order_Compatibility::get_prop( $order, 'billing_company' ),
-			'billing_email'          => SV_WC_Order_Compatibility::get_prop( $order, 'billing_email' ),
-			'billing_phone'          => SV_WC_Order_Compatibility::get_prop( $order, 'billing_phone' ),
-			'billing_address_1'      => SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_1' ),
-			'billing_address_2'      => SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_2' ),
-			'billing_postcode'       => SV_WC_Order_Compatibility::get_prop( $order, 'billing_postcode' ),
-			'billing_city'           => SV_WC_Order_Compatibility::get_prop( $order, 'billing_city' ),
+			'billing_company'        => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_company' ),
+			'billing_email'          => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_email' ),
+			'billing_phone'          => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_phone' ),
+			'billing_address_1'      => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_1' ),
+			'billing_address_2'      => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_2' ),
+			'billing_postcode'       => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_postcode' ),
+			'billing_city'           => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_city' ),
 			'billing_state'          => $this->get_localized_state_for_order( $order, 'billing' ),
-			'billing_state_code'     => SV_WC_Order_Compatibility::get_prop( $order, 'billing_state' ),
-			'billing_country'        => SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' ),
-			'shipping_first_name'    => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_first_name' ),
-			'shipping_last_name'     => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_last_name' ),
+			'billing_state_code'     => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_state' ),
+			'billing_country'        => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' ),
+			'shipping_first_name'    => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_first_name' ),
+			'shipping_last_name'     => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_last_name' ),
 			'shipping_full_name'     => $order->get_formatted_shipping_full_name(),
-			'shipping_company'       => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_company' ),
-			'shipping_address_1'     => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_1' ),
-			'shipping_address_2'     => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_2' ),
-			'shipping_postcode'      => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_postcode' ),
-			'shipping_city'          => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_city' ),
+			'shipping_company'       => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_company' ),
+			'shipping_address_1'     => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_1' ),
+			'shipping_address_2'     => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_2' ),
+			'shipping_postcode'      => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_postcode' ),
+			'shipping_city'          => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_city' ),
 			'shipping_state'         => $this->get_localized_state_for_order( $order, 'shipping' ),
-			'shipping_state_code'    => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_state' ),
-			'shipping_country'       => SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' ),
-			'customer_note'          => SV_WC_Order_Compatibility::get_prop( $order, 'customer_note' ),
+			'shipping_state_code'    => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_state' ),
+			'shipping_country'       => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' ),
+			'customer_note'          => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'customer_note' ),
 			'shipping_items'         => $is_json && ! empty( $shipping_items ) ? json_encode( $shipping_items ) : implode( ';', $shipping_items ),
 			'fee_items'              => $is_json && ! empty( $fee_items ) ? json_encode( $fee_items ) : implode( ';', $fee_items ),
 			'tax_items'              => $is_json && ! empty( $tax_items ) ? json_encode( $tax_items ) : implode( ';', $tax_items ),
@@ -660,11 +662,17 @@ class WC_Customer_Order_CSV_Export_Generator {
 			'refunds'                => $is_json && ! empty( $refunds ) ? json_encode( $refunds ) : implode( ';', $refunds ),
 			'order_notes'            => implode( '|', $this->get_order_notes( $order ) ),
 			'download_permissions'   => $download_permissions_granted ? 1 : 0,
-		);
+		];
+
+		// support custom order numbers beyond Sequential Order Numbers Free / Pro - but since we can't
+		// distinguish between the underlying number and the formatted number, only set the formatted number
+		if ( ! $order_data['order_number_formatted'] ) {
+			$order_data['order_number_formatted'] = $order->get_order_number();
+		}
 
 		if ( 'item' === $this->format_definition['row_type'] ) {
 
-			$new_order_data = array();
+			$new_order_data = [];
 
 			foreach ( $line_items as $item ) {
 
@@ -730,7 +738,7 @@ class WC_Customer_Order_CSV_Export_Generator {
 	 */
 	private function pipe_delimit_item( $item ) {
 
-		$result = array();
+		$result = [];
 
 		foreach ( $item as $key => $value ) {
 
@@ -754,13 +762,13 @@ class WC_Customer_Order_CSV_Export_Generator {
 	 */
 	private function get_order_notes( $order ) {
 
-		$callback = array( 'WC_Comments', 'exclude_order_comments' );
+		$callback = [ 'WC_Comments', 'exclude_order_comments' ];
 
-		$args = array(
-			'post_id' => SV_WC_Order_Compatibility::get_prop( $order, 'id' ),
+		$args = [
+			'post_id' => Framework\SV_WC_Order_Compatibility::get_prop( $order, 'id' ),
 			'approve' => 'approve',
 			'type'    => 'order_note'
-		);
+		];
 
 		remove_filter( 'comments_clauses', $callback );
 
@@ -768,11 +776,11 @@ class WC_Customer_Order_CSV_Export_Generator {
 
 		add_filter( 'comments_clauses', $callback );
 
-		$order_notes = array();
+		$order_notes = [];
 
 		foreach ( $notes as $note ) {
 
-			$order_notes[] = str_replace( array( "\r", "\n" ), ' ', $note->comment_content );
+			$order_notes[] = str_replace( [ "\r", "\n" ], ' ', $note->comment_content );
 		}
 
 		return $order_notes;
@@ -784,7 +792,7 @@ class WC_Customer_Order_CSV_Export_Generator {
 	 *
 	 * @since 3.0.0
 	 * @param array $ids customer IDs to export. also accepts an array of arrays with billing email and
-	 *                   order Ids, for guest customers: array( $user_id, array( $billing_email, $order_id ) )
+	 *                   order Ids, for guest customers: [ $user_id, [ $billing_email, $order_id ] ]
 	 * @param bool $include_headers optional. Whether to include CSV column headers in the output or not. Defaults to false
 	 * @return string CSV data
 	 */
@@ -800,11 +808,11 @@ class WC_Customer_Order_CSV_Export_Generator {
 			$header = $this->get_header();
 
 			if ( null !== $header ) {
-				fputs( $stream, $header );
+				fwrite( $stream, $header );
 			}
 		}
 
-		$customer_data = array();
+		$customer_data = [];
 
 		// iterate through customers
 		foreach ( $ids as $customer_id ) {
@@ -833,13 +841,21 @@ class WC_Customer_Order_CSV_Export_Generator {
 				// iterate through each line item row and write it
 				foreach ( $data as $row ) {
 
-					fputs( $stream, $this->get_row_csv( $row, $headers ) );
+					$csv_row = $this->get_row_csv( $row, $headers );
+
+					if ( ! empty( $csv_row ) ) {
+						fwrite( $stream, $csv_row );
+					}
 				}
 
 			} else {
 
 				// otherwise simply write the single order row
-				fputs( $stream, $this->get_row_csv( $data, $headers ) );
+				$csv_row = $this->get_row_csv( $data, $headers );
+
+				if ( ! empty( $csv_row ) ) {
+					fwrite( $stream, $csv_row );
+				}
 			}
 		}
 
@@ -918,45 +934,41 @@ class WC_Customer_Order_CSV_Export_Generator {
 
 			if ( $order ) {
 
-				if ( SV_WC_Plugin_Compatibility::is_wc_version_gte_3_0() ) {
-					$order_date = is_callable( array( $order->get_date_created(), 'date' ) ) ? $order->get_date_created()->date( 'Y-m-d H:i:s' ) : null;
-				} else {
-					$order_date = $order->order_date;
-				}
+				$order_date = is_callable( [ $order->get_date_created(), 'date' ] ) ? $order->get_date_created()->date( 'Y-m-d H:i:s' ) : null;
 
 				// set properties on user
-				$user->ID                  = 0;
-				$user->first_name          = SV_WC_Order_Compatibility::get_prop( $order, 'billing_first_name' );
-				$user->last_name           = SV_WC_Order_Compatibility::get_prop( $order, 'billing_last_name' );
-				$user->user_login          = '';
-				$user->user_email          = SV_WC_Order_Compatibility::get_prop( $order, 'billing_email' );
-				$user->user_pass           = '';
+				$user->ID         = 0;
+				$user->first_name = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_first_name' );
+				$user->last_name  = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_last_name' );
+				$user->user_login = '';
+				$user->user_email = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_email' );
+				$user->user_pass  = '';
 				// don't format this date, it will be formatted later
 				$user->user_registered     = $order_date;
-				$user->billing_first_name  = SV_WC_Order_Compatibility::get_prop( $order, 'billing_first_name' );
-				$user->billing_last_name   = SV_WC_Order_Compatibility::get_prop( $order, 'billing_last_name' );
+				$user->billing_first_name  = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_first_name' );
+				$user->billing_last_name   = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_last_name' );
 				$user->billing_full_name   = $order->get_formatted_billing_full_name();
-				$user->billing_company     = SV_WC_Order_Compatibility::get_prop( $order, 'billing_company' );
-				$user->billing_email       = SV_WC_Order_Compatibility::get_prop( $order, 'billing_email' );
-				$user->billing_phone       = SV_WC_Order_Compatibility::get_prop( $order, 'billing_phone' );
-				$user->billing_address_1   = SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_1' );
-				$user->billing_address_2   = SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_2' );
-				$user->billing_postcode    = SV_WC_Order_Compatibility::get_prop( $order, 'billing_postcode' );
-				$user->billing_city        = SV_WC_Order_Compatibility::get_prop( $order, 'billing_city' );
+				$user->billing_company     = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_company' );
+				$user->billing_email       = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_email' );
+				$user->billing_phone       = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_phone' );
+				$user->billing_address_1   = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_1' );
+				$user->billing_address_2   = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_address_2' );
+				$user->billing_postcode    = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_postcode' );
+				$user->billing_city        = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_city' );
 				$user->billing_state       = $this->get_localized_state_for_order( $order, 'billing' );
-				$user->billing_state_code  = SV_WC_Order_Compatibility::get_prop( $order, 'billing_state' );
-				$user->billing_country     = SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' );
-				$user->shipping_first_name = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_first_name' );
-				$user->shipping_last_name  = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_last_name' );
+				$user->billing_state_code  = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_state' );
+				$user->billing_country     = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'billing_country' );
+				$user->shipping_first_name = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_first_name' );
+				$user->shipping_last_name  = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_last_name' );
 				$user->shipping_full_name  = $order->get_formatted_shipping_full_name();
-				$user->shipping_company    = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_company' );
-				$user->shipping_address_1  = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_1' );
-				$user->shipping_address_2  = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_2' );
-				$user->shipping_postcode   = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_postcode' );
-				$user->shipping_city       = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_city' );
+				$user->shipping_company    = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_company' );
+				$user->shipping_address_1  = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_1' );
+				$user->shipping_address_2  = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_address_2' );
+				$user->shipping_postcode   = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_postcode' );
+				$user->shipping_city       = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_city' );
 				$user->shipping_state      = $this->get_localized_state_for_order( $order, 'shipping' );
-				$user->shipping_state_code = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_state' );
-				$user->shipping_country    = SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' );
+				$user->shipping_state_code = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_state' );
+				$user->shipping_country    = Framework\SV_WC_Order_Compatibility::get_prop( $order, 'shipping_country' );
 			}
 		}
 
@@ -965,7 +977,8 @@ class WC_Customer_Order_CSV_Export_Generator {
 			return false;
 		}
 
-		$customer_data = array(
+		// fallbacks for full name are needed if we're pulling this information from user meta instead of the order data
+		$customer_data = [
 			'customer_id'         => $user->ID,
 			'first_name'          => $user->first_name,
 			'last_name'           => $user->last_name,
@@ -975,7 +988,8 @@ class WC_Customer_Order_CSV_Export_Generator {
 			'date_registered'     => $this->format_date( $user->user_registered ),
 			'billing_first_name'  => $user->billing_first_name,
 			'billing_last_name'   => $user->billing_last_name,
-			'billing_full_name'   => $user->billing_full_name,
+			/* translators: Placeholders: %1$s - first name; %2$s - last name */
+			'billing_full_name'   => ! empty( $user->billing_full_name ) ? $user->billing_full_name : sprintf( _x( '%1$s %2$s', 'full name', 'woocommerce-customer-order-csv-export' ), $user->billing_first_name, $user->billing_last_name ),
 			'billing_company'     => $user->billing_company,
 			'billing_email'       => $user->billing_email,
 			'billing_phone'       => $user->billing_phone,
@@ -988,7 +1002,8 @@ class WC_Customer_Order_CSV_Export_Generator {
 			'billing_country'     => $user->billing_country,
 			'shipping_first_name' => $user->shipping_first_name,
 			'shipping_last_name'  => $user->shipping_last_name,
-			'shipping_full_name'  => $user->shipping_full_name,
+			/* translators: Placeholders: %1$s - first name; %2$s - last name / surname */
+			'shipping_full_name'  => ! empty( $user->shipping_full_name ) ? $user->shipping_full_name : sprintf( _x( '%1$s %2$s', 'full name', 'woocommerce-customer-order-csv-export' ), $user->shipping_first_name, $user->shipping_last_name ),
 			'shipping_company'    => $user->shipping_company,
 			'shipping_address_1'  => $user->shipping_address_1,
 			'shipping_address_2'  => $user->shipping_address_2,
@@ -999,7 +1014,7 @@ class WC_Customer_Order_CSV_Export_Generator {
 			'shipping_country'    => $user->shipping_country,
 			'total_spent'         => wc_format_decimal( wc_get_customer_total_spent( $user->ID ), 2 ),
 			'order_count'         => wc_get_customer_order_count( $user->ID ),
-		);
+		];
 
 		/**
 		 * CSV Customer Export Row.
@@ -1020,6 +1035,257 @@ class WC_Customer_Order_CSV_Export_Generator {
 
 
 	/**
+	 * Get the CSV for coupons.
+	 *
+	 * @since 4.6.0
+	 *
+	 * @param array $ids coupon IDs to export
+	 * @param bool $include_headers optional. Whether to include CSV column headers in the output or not. Defaults to false
+	 * @return string CSV data
+	 */
+	public function get_coupons_csv( $ids, $include_headers = false ) {
+
+		$stream  = fopen( 'php://output', 'w' );
+		$headers = $this->get_coupons_csv_headers();
+
+		ob_start();
+
+		if ( $include_headers ) {
+
+			$header = $this->get_header();
+
+			if ( null !== $header ) {
+				fwrite( $stream, $header );
+			}
+		}
+
+		$coupon_data = [];
+
+		// iterate through coupons
+		foreach ( $ids as $coupon_id ) {
+
+			// get data for each coupon
+			$data = $this->get_coupons_csv_row_data( $coupon_id );
+
+			// skip if coupon data wasn't found
+			if ( empty( $data ) ) {
+				continue;
+			}
+
+			$coupon_data[] = $data;
+
+			// data can be an array of arrays when each line item is it's own row
+			$first_element = reset( $data );
+
+			if ( is_array( $first_element ) ) {
+
+				// iterate through each line item row and write it
+				foreach ( $data as $row ) {
+
+					$csv_row = $this->get_row_csv( $row, $headers );
+
+					if ( ! empty( $csv_row ) ) {
+						fwrite( $stream, $csv_row );
+					}
+				}
+
+			} else {
+
+				// otherwise simply write the single order row
+				$csv_row = $this->get_row_csv( $data, $headers );
+
+				if ( ! empty( $csv_row ) ) {
+					fwrite( $stream, $csv_row );
+				}
+			}
+		}
+
+		fclose( $stream );
+
+		$csv = ob_get_clean();
+
+		/**
+		 * Filter the generated coupons CSV.
+		 *
+		 * @since 4.6.0
+		 *
+		 * @param string $csv_data The CSV data
+		 * @param array $coupon_data An array of the coupon data to write to to the CSV
+		 * @param array $coupon_ids The coupon ids
+		 */
+		return apply_filters( 'wc_customer_order_csv_export_get_coupons_csv', $csv, $coupon_data, $ids );
+	}
+
+
+	/**
+	 * Get the column headers for the coupons CSV.
+	 *
+	 * Note that the headers are keyed in column_key => column_name format so that plugins can control the output
+	 * format using only the column headers and row data is not required to be in the exact same order, as the row data
+	 * is matched on the column key.
+	 *
+	 * @since 4.6.0
+	 *
+	 * @return array column headers in column_key => column_name format
+	 */
+	public function get_coupons_csv_headers() {
+
+		$column_headers = $this->format_definition['columns'];
+
+		/**
+		 * CSV Coupon Export Column Headers.
+		 *
+		 * Filter the column headers for the coupon export
+		 *
+		 * @since 4.6.0
+		 *
+		 * @param array $column_headers {
+		 *     column headers in key => name format
+		 *     to modify the column headers, ensure the keys match these and set your own values
+		 * }
+		 * @param \WC_Customer_Order_CSV_Export_Generator $this, generator instance
+		 */
+		return apply_filters( 'wc_customer_order_csv_export_coupon_headers', $column_headers, $this );
+	}
+
+
+	/**
+	 * Get the coupon data for a single CSV row.
+	 *
+	 * Note items are keyed according to the column header keys above so these can be modified using
+	 * the provider filter without needing to worry about the array order.
+	 *
+	 * @since 4.6.0
+	 *
+	 * @param int|string $id coupon id
+	 * @return array|false coupon data in the format key => content, or false on failure
+	 */
+	private function get_coupons_csv_row_data( $id ) {
+
+		// load the coupon
+		$coupon = new WC_Coupon( $id );
+
+		// skip this row if the coupon can't be loaded
+		if ( ! $coupon ) {
+			return false;
+		}
+
+		// get all category names to match against coupon category IDs
+		$categories     = get_categories( [ 'taxonomy' => 'product_cat' ] );
+		$category_names = [];
+
+		foreach ( $categories as $category ) {
+			$category_names[ $category->term_id ] = $category->category_nicename;
+		}
+
+		// get this coupon's included and excluded products
+		$product_ids          = $coupon->get_product_ids();
+		$excluded_product_ids = $coupon->get_excluded_product_ids();
+
+		// get this coupon's included and excluded product categories
+		$product_category_ids          = $coupon->get_product_categories();
+		$excluded_product_category_ids = $coupon->get_excluded_product_categories();
+
+		// create array of product SKUs allowed by this coupon
+		$products = [];
+
+		foreach ( $product_ids as $product_id ) {
+
+			$product = wc_get_product( $product_id );
+
+			if ( $product instanceof WC_Product ) {
+				$products[] = $product->get_sku();
+			}
+		}
+
+		// create array of product SKUs excluded by this coupon
+		$excluded_products = [];
+
+		foreach ( $excluded_product_ids as $excluded_product_id ) {
+
+			$product = wc_get_product( $excluded_product_id );
+
+			if ( $product instanceof WC_Product ) {
+				$excluded_products[] = $product->get_sku();
+			}
+		}
+
+		// create array of product category names allowed by this coupon
+		$product_categories = [];
+
+		foreach ( $product_category_ids as $product_category_id ) {
+			$product_categories[] = $category_names[ $product_category_id ];
+		}
+
+		// create array of product category names excluded by this coupon
+		$excluded_product_categories = [];
+
+		foreach ( $excluded_product_category_ids as $excluded_product_category_id ) {
+			$excluded_product_categories[] = $category_names[ $excluded_product_category_id ];
+		}
+
+		$expiry_date           = $coupon->get_date_expires();
+		$formatted_expiry_date = ( !empty( $expiry_date ) ) ? $this->format_date( $expiry_date->date( 'Y-m-d' ) ) : '';
+
+		// create array of email addresses of customers who have used this coupon
+		$used_by_customer_emails = [];
+
+		$used_by = $coupon->get_used_by();
+
+		foreach ( $used_by as $user_id ) {
+			// this value may be a user ID or an email address
+			if ( is_email( $user_id ) ) {
+				$used_by_customer_emails[] = $user_id;
+			} elseif ( $user = get_user_by( 'id', $user_id ) ) {
+				$user = get_user_by( 'id', $user_id );
+				$used_by_customer_emails[] = $user->user_email;
+			}
+		}
+
+		$coupon_data = [
+			'code'                       => $coupon->get_code(),
+			'type'                       => $coupon->get_discount_type(),
+			'description'                => $coupon->get_description(),
+			'amount'                     => wc_format_decimal( $coupon->get_amount() ),
+			'expiry_date'                => $formatted_expiry_date,
+			'enable_free_shipping'       => $coupon->get_free_shipping() ? 'yes' : 'no',
+			'minimum_amount'             => wc_format_decimal( $coupon->get_minimum_amount() ),
+			'maximum_amount'             => wc_format_decimal( $coupon->get_maximum_amount() ),
+			'individual_use'             => $coupon->get_individual_use() ? 'yes' : 'no',
+			'exclude_sale_items'         => $coupon->get_exclude_sale_items() ? 'yes' : 'no',
+			'products'                   => implode( ', ', $products ),
+			'exclude_products'           => implode( ', ', $excluded_products ),
+			'product_categories'         => implode( ', ', $product_categories ),
+			'exclude_product_categories' => implode( ', ', $excluded_product_categories ),
+			'customer_emails'            => implode( ', ', $coupon->get_email_restrictions() ),
+			'usage_limit'                => $coupon->get_usage_limit(),
+			'limit_usage_to_x_items'     => $coupon->get_limit_usage_to_x_items(),
+			'usage_limit_per_user'       => $coupon->get_usage_limit_per_user(),
+			'usage_count'                => $coupon->get_usage_count(),
+			'product_ids'                => implode( ', ', $product_ids ),
+			'exclude_product_ids'        => implode( ', ', $excluded_product_category_ids ),
+			'used_by'                    => implode( ', ', $used_by_customer_emails ),
+		];
+
+		/**
+		 * CSV Coupon Export Row.
+		 *
+		 * Filter the individual row data for the coupon export
+		 *
+		 * @since 4.6.0
+		 *
+		 * @param array $coupon_data {
+		 *     order data in key => value format
+		 *     to modify the row data, ensure the key matches any of the header keys and set your own value
+		 * }
+		 * @param \WC_Coupon $coupon the coupon for this row
+		 * @param \WC_Customer_Order_CSV_Export_Generator $this, generator instance
+		 */
+		return apply_filters( 'wc_customer_order_csv_export_coupon_row', $coupon_data, $coupon, $this );
+	}
+
+
+	/**
 	 * Returns the localized state for the order.
 	 *
 	 * TODO: Remove once WC 3.0+ is required {MR 2017-02-23}
@@ -1032,8 +1298,8 @@ class WC_Customer_Order_CSV_Export_Generator {
 	 */
 	protected function get_localized_state_for_order( WC_Order $order, $type ) {
 
-		$country = SV_WC_Order_Compatibility::get_prop( $order, "{$type}_country" );
-		$state   = SV_WC_Order_Compatibility::get_prop( $order, "{$type}_state" );
+		$country = Framework\SV_WC_Order_Compatibility::get_prop( $order, "{$type}_country" );
+		$state   = Framework\SV_WC_Order_Compatibility::get_prop( $order, "{$type}_state" );
 
 		return $this->get_localized_state( $country, $state );
 	}
@@ -1050,13 +1316,13 @@ class WC_Customer_Order_CSV_Export_Generator {
 	protected function get_localized_state( $country, $state ) {
 
 		// countries that have numeric state codes
-		$countries_with_numeric_states = array(
+		$countries_with_numeric_states = [
 			'JP',
 			'BG',
 			'CN',
 			'TH',
 			'TR',
-		);
+		];
 
 		// only proceed if we need to replace a numeric state code
 		if ( ! in_array( $country, $countries_with_numeric_states, true ) ) {
@@ -1114,14 +1380,14 @@ class WC_Customer_Order_CSV_Export_Generator {
 		// colons need to be replaced with a placeholder so that we can safely
 		// replace the key-value separator (colon + space) with our own (equals sign)
 		$input = str_replace(
-			array( '=',  ',',  ':' ),
-			array( '\=', '\,', '[INSERT_COLON_HERE]' ),
+			[ '=',  ',',  ':' ],
+			[ '\=', '\,', '[INSERT_COLON_HERE]' ],
 			$input
 		);
 
 		// newlines are legal in CSV, but we want to remove the newlines generated
 		// by WC_Order_Item_Meta::display(), so we replace them with a placeholder temporarily
-		return str_replace( array( "\r\n", "\r", "\n" ), '[INSERT_NEWLINE_HERE]', $input );
+		return str_replace( [ "\r\n", "\r", "\n" ], '[INSERT_NEWLINE_HERE]', $input );
 	}
 
 
@@ -1137,8 +1403,8 @@ class WC_Customer_Order_CSV_Export_Generator {
 		// colons separate key-value pairs, pipes separate fields/properties,
 		// and semicolons separate line items themselves
 		return str_replace(
-			array( ':',  '|',  ';' ),
-			array( '\:', '\|', '\;' ),
+			[ ':',  '|',  ';' ],
+			[ '\:', '\|', '\;' ],
 			$input
 		);
 	}
@@ -1155,10 +1421,10 @@ class WC_Customer_Order_CSV_Export_Generator {
 	 */
 	private function escape_cell_formulas( $value ) {
 
-		$untrusted = SV_WC_Helper::str_starts_with( $value, '=' ) ||
-		             SV_WC_Helper::str_starts_with( $value, '+' ) ||
-		             SV_WC_Helper::str_starts_with( $value, '-' ) ||
-		             SV_WC_Helper::str_starts_with( $value, '@' );
+		$untrusted = Framework\SV_WC_Helper::str_starts_with( $value, '=' ) ||
+					 Framework\SV_WC_Helper::str_starts_with( $value, '+' ) ||
+					 Framework\SV_WC_Helper::str_starts_with( $value, '-' ) ||
+					 Framework\SV_WC_Helper::str_starts_with( $value, '@' );
 
 		if ( $untrusted ) {
 			$value = "'" . $value;
@@ -1185,7 +1451,7 @@ class WC_Customer_Order_CSV_Export_Generator {
 			return '';
 		}
 
-		$data = array();
+		$data = [];
 
 		foreach ( $headers as $header_key => $_ ) {
 
@@ -1256,6 +1522,10 @@ class WC_Customer_Order_CSV_Export_Generator {
 				$headers = $this->get_customers_csv_headers();
 			break;
 
+			case 'coupons':
+				$headers = $this->get_coupons_csv_headers();
+				break;
+
 			default:
 
 				/**
@@ -1264,7 +1534,7 @@ class WC_Customer_Order_CSV_Export_Generator {
 				 * @since 4.0.0
 				 * @param array $headers
 				 */
-				$headers = apply_filters( 'wc_customer_order_csv_export_' . $this->export_type . '_headers', array() );
+				$headers = apply_filters( 'wc_customer_order_csv_export_' . $this->export_type . '_headers', [] );
 			break;
 		}
 
@@ -1309,6 +1579,9 @@ class WC_Customer_Order_CSV_Export_Generator {
 			case 'customers':
 				return $this->get_customers_csv( $ids );
 
+			case 'coupons':
+				return $this->get_coupons_csv( $ids );
+
 			default:
 				/**
 				 * Allow actors to provide output for custom export types
@@ -1317,8 +1590,9 @@ class WC_Customer_Order_CSV_Export_Generator {
 				 * @param string $output defaults to empty string
 				 * @param array $ids object IDs to export
 				 * @param string $export_format export format, if any
+				 * @param string $custom_export_format custom export format, if any
 				 */
-				return apply_filters( 'wc_customer_order_csv_export_get_' . $this->export_type . '_csv', '', $ids, $this->export_format );
+				return apply_filters( 'wc_customer_order_csv_export_get_' . $this->export_type . '_csv', '', $ids, $this->export_format, $this->custom_export_format );
 		}
 	}
 

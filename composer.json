@@ -1,11 +1,11 @@
 {
-  "name": "jlm2017/woocommerce-customer-order-csv-export-jlm2017",
+  "name": "lafranceinsoumise/woocommerce-customer-order-csv-export",
   "type": "wordpress-plugin",
   "keywords": ["wordpress", "plugin"],
   "require": {
       "php": ">=5.3.2",
       "composer/installers": "~1.0"
     },
-  "homepage": "https://github.com/jlm2017/woocommerce-customer-order-csv-export-jlm2017",
+  "homepage": "https://github.com/lafranceinsoumise/woocommerce-customer-order-csv-export",
   "license": "GPL-3.0"
 }

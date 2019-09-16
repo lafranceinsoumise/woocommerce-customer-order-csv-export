@@ -16,9 +16,8 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Admin/Views
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -98,19 +97,19 @@ defined( 'ABSPATH' ) or exit;
 			<tr>
 				<td data-export-label="Order Statuses"><?php _e( 'Order Statuses', 'woocommerce-customer-order-csv-export' ); ?>:</td>
 				<td class="help"><?php echo wc_help_tip( __( 'The order statuses to be included in the automatic export.', 'woocommerce-customer-order-csv-export' ) ); ?></td>
-				<td><?php echo esc_html( implode( ', ', get_option( 'wc_customer_order_csv_export_orders_auto_export_statuses' ) ) ); ?></td>
+				<td><?php echo esc_html( implode( ', ', (array) get_option( 'wc_customer_order_csv_export_orders_auto_export_statuses', [] ) ) ); ?></td>
 			</tr>
 
 			<tr>
 				<td data-export-label="Product Categories"><?php _e( 'Product Categories', 'woocommerce-customer-order-csv-export' ); ?>:</td>
 				<td class="help"><?php echo wc_help_tip( __( 'The product categories to be included in the automatic export.', 'woocommerce-customer-order-csv-export' ) ); ?></td>
-				<td><?php echo esc_html( implode( ', ', get_option( 'wc_customer_order_csv_export_orders_auto_export_product_categories' ) ) ); ?></td>
+				<td><?php echo esc_html( implode( ', ', (array) get_option( 'wc_customer_order_csv_export_orders_auto_export_product_categories', [] ) ) ); ?></td>
 			</tr>
 
 			<tr>
 				<td data-export-label="Products"><?php _e( 'Products', 'woocommerce-customer-order-csv-export' ); ?>:</td>
 				<td class="help"><?php echo wc_help_tip( __( 'The products to be included in the automatic export.', 'woocommerce-customer-order-csv-export' ) ); ?></td>
-				<td><?php echo esc_html( implode( ', ', explode( ',', get_option( 'wc_customer_order_csv_export_orders_auto_export_products' ) ) ) ); ?></td>
+				<td><?php echo esc_html( implode( ', ', explode( ',', get_option( 'wc_customer_order_csv_export_orders_auto_export_products', '' ) ) ) ); ?></td>
 			</tr>
 
 		<?php endif; ?>

@@ -1,5 +1,98 @@
 *** WooCommerce Customer/Order CSV Export Changelog ***
 
+2019.08.21 - version 4.8.1
+ * Fix - Fix issue preventing database-stored exports from displaying properly on some hosts
+
+2019.08.12 - version 4.8.0
+ * Fix - Fix a bug which caused exports not to work without re-saving settings after install
+ * Misc - Add support for WooCommerce 3.7
+ * Misc - Remove support for WooCommerce 2.6
+ * Misc - Require PHP 5.6+
+
+2019.07.30 - version 4.7.1
+ * Fix - Only test loopback connection on plugin settings page
+
+2019.06.27 - version 4.7.0
+ * Feature - Create and manage multiple custom formats for order, customer, and coupon exports
+ * Misc - Update the SkyVerge Plugin Framework to version 5
+
+2019.06.05 - version 4.6.4
+ * Tweak - Drop support for legacy export formats in fresh installations of the plugin
+ * Fix - Exclude auto-draft orders from order export
+ * Fix - Fix load mapping functionality for Coupons custom format
+ * Fix - Address a bug that may have produced a PHP warning in the system status report admin page
+ * Fix - Bail out from writing rows to CSV that may contain empty data and cause file download issues in some circumstances
+
+2019.04.17 - version 4.6.3
+ * Fix - Fix an error which could occur when running certain third-party plugins
+ * Dev - Filter the maximum age of stored exports
+ * Misc - Add support for WooCommerce 3.6
+
+2019.01.22 - version 4.6.2
+ * Fix - Fix issue causing the download_permissions column to always be populated with 0
+ * Fix - Ensure greater than 10 coupons can be exported at a time
+ * Fix - Set individual_use column to yes/no to match CSV Import's format
+ * Fix - Fix an error exporting coupons which are restricted to or excluded from deleted products
+ * Misc - Add a notice on the Custom Formats tab that alerts the user if they are modifying a custom format that is not enabled
+
+2018.11.29 - version 4.6.1
+ * Fix - Fix bug causing no results when more than one coupon matches a filter criteria.
+
+2018.11.07 - version 4.6.0
+ * Feature - Add support for exporting coupons in CSV Import or custom formats
+
+2018.10.16 - version 4.5.3
+ * Fix - Stop exports from aggressively clearing the WP object cache
+ * Misc - Add support for WooCommerce 3.5
+
+2018.07.18 - version 4.5.2
+ * Fix - Fix an issue with malformed exports when using the filesystem data store
+
+2018.07.16 - version 4.5.1
+ * Fix - Fix a javascript console error when adding a new column in the custom format column mapper
+
+2018.07.11 - versions 4.5.0
+ * Feature - Add new data store classes which allow for soring exports in the filesystem, database, or a custom data store
+ * Dev - Add `wc_customer_order_csv_export_custom_data_store` filter to allow the use of custom data stores
+ * Dev - Add `wc_customer_order_csv_auto_export_ids` and `wc_customer_order_csv_auto_export_customers` filters to allow changing auto-exported ids
+ * Dev - Add `wc_customer_order_csv_export_start_export_args` filter to allow changing the export arguments just before creation
+
+2018.05.23 - version 4.4.6
+ * Misc - Add support for WooCommerce 3.4
+
+2018.05.03 - version 4.4.5
+ * Fix - Improve performance when exporting orders containing subscriptions and renewals from sites with many orders
+ * Dev - Add `wc_customer_order_csv_export_admin_export_list_columns` and `wc_customer_order_csv_export_admin_export_list_custom_column` filters to adjust export list columns
+
+2018.03.14 - version 4.4.4
+ * Fix - Ensure Download to CSV order action works in WooCommerce 3.3
+
+2018.01.31 - version 4.4.3
+ * Fix - Ensure Download to CSV button icon is displayed in WooCommerce 3.3
+
+2018.01.23 - version 4.4.2
+ * Misc - Add support for WooCommerce 3.3
+
+2017.12.05 - version 4.4.1
+ * Tweak - Add a fallback to export order numbers even when the Sequential Order Numbers plugins aren't in use
+ * Fix - Prevent orders from being exported more than once when auto-exporting orders immediately as they're created
+ * Fix - Fix a possible race condition when performing background processing health checks
+ * Fix - Account for possible false negatives when testing loopback connections in certain environments
+ * Fix - Ensure that when using a custom format where a row represents a single line item, line items use pipe-delimited formatting
+
+2017.11.01 - version 4.4.0
+ * Feature - Use a batch-processing fallback for manual exports on incompatible hosting environments
+ * Fix - Ensure that auto-exports will not allow more than one export job to be created at a time
+ * Fix - An issue with exports remaining queued due to a nonce check incorrectly failing
+ * Fix - Allow the products auto-export setting to be cleared
+ * Tweak - Improve performance when exporting in the Legacy CSV Import format
+ * Misc - Remove support for WooCommerce 2.5
+ * Dev - Add `manage_woocommerce_csv_exports` capabilities for viewing and managing exports
+
+2017.08.23 - version 4.3.7
+ * Fix - Line item meta was not being consistently output in WooCommerce 3.1.x
+ * Fix - Customer exports not outputting billing or shipping full name
+
 2017.07.25 - version 4.3.6
  * Fix - Deprecation warnings in WooCommerce 3.1
 

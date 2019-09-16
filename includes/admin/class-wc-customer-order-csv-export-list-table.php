@@ -16,9 +16,8 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Admin
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -35,7 +34,7 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
  *
  * @since 4.0.0
  */
- class WC_Customer_Order_CSV_Export_List_Table extends WP_List_Table {
+class WC_Customer_Order_CSV_Export_List_Table extends WP_List_Table {
 
 
 	/** @var array associative array of translated export status labels */
@@ -49,20 +48,21 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 	 * @param array $args
 	 * @return \WC_Customer_Order_CSV_Export_List_Table
 	 */
-	public function __construct( $args = array() ) {
+	public function __construct( $args = [] ) {
 
-		parent::__construct( array(
+		parent::__construct( [
 			'singular' => 'export',
 			'plural'   => 'exports',
 			'ajax'     => false
-		) );
+		] );
 
-		$this->statuses = array(
+		$this->statuses = [
 			'queued'     => esc_html__( 'Queued', 'woocommerce-customer-order-csv-export' ),
 			'processing' => esc_html__( 'Processing', 'woocommerce-customer-order-csv-export' ),
 			'completed'  => esc_html__( 'Completed', 'woocommerce-customer-order-csv-export' ),
 			'failed'     => esc_html__( 'Failed', 'woocommerce-customer-order-csv-export' ),
-		);
+			'paused'     => esc_html__( 'Paused', 'woocommerce-customer-order-csv-export' )
+		];
 	}
 
 
@@ -74,7 +74,7 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 	 */
 	public function get_columns() {
 
-		$columns = array(
+		$columns = [
 			'cb'              => '<input type="checkbox" />',
 			'export_status'   => '<span class="status_head tips" data-tip="' . esc_attr__( 'Export Status', 'woocommerce-customer-order-csv-export' ) . '">' . esc_attr__( 'Export Status', 'woocommerce-customer-order-csv-export' ) . '</span>',
 			'transfer_status' => '<span class="transfer_status_head tips" data-tip="' . esc_attr__( 'Transfer Status', 'woocommerce-customer-order-csv-export' ) . '">' . esc_attr__( 'Transfer Status', 'woocommerce-customer-order-csv-export' ) . '</span>',
@@ -83,11 +83,11 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 			'filename'        => esc_html__( 'File name', 'woocommerce-customer-order-csv-export' ),
 			'export_date'     => esc_html__( 'Date', 'woocommerce-customer-order-csv-export' ),
 			'file_actions'    => esc_html__( 'Actions', 'woocommerce-customer-order-csv-export' ),
-		);
+		];
 
 		$auto_exports_enabled = false;
 
-		foreach ( array( 'orders', 'customers' ) as $export_type ) {
+		foreach ( [ 'orders', 'customers', 'coupons' ] as $export_type ) {
 
 			if ( $auto_export_method = wc_customer_order_csv_export()->get_methods_instance()->get_auto_export_method( $export_type ) ) {
 
@@ -103,142 +103,186 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 			unset( $columns['transfer_status'] );
 		}
 
-		return $columns;
+		/**
+		 * Filters the columns in the export list table.
+		 *
+		 * @since 4.4.5
+		 *
+		 * @param array $columns the export list columns
+		 * @param bool $auto_exports_enabled true if automated exports are enabled
+		 */
+		return apply_filters( 'wc_customer_order_csv_export_admin_export_list_columns', $columns, $auto_exports_enabled );
 	}
 
 
 	/**
-	 * Get column content
+	 * Gets column content.
 	 *
 	 * @since 4.0.0
-	 * @param stdClass $export
-	 * @param string $column_name
-	 * @return array
+	 *
+	 * @param object $export_job the export job object
+	 * @param string $column_name the column name
+	 * @return string the column content
 	 */
-	public function column_default( $export, $column_name ) {
+	public function column_default( $export_job, $column_name ) {
+
+		$export = wc_customer_order_csv_export_get_export( $export_job );
+
+		if ( ! $export ) {
+			return '';
+		}
 
 		switch ( $column_name ) {
 
 			case 'export_status':
 
-				$label = $this->statuses[ $export->status ];
-				return sprintf( '<mark class="%1$s tips" data-tip="%2$s">%3$s</mark>', sanitize_key( $export->status ), $label, $label );
+				$status = 'processing' === $export->get_status() && wc_customer_order_csv_export()->is_batch_processing_enabled() ? 'paused' : $export->get_status();
+
+				$label = $this->statuses[ $status ];
+
+				return sprintf( '<mark class="%1$s tips" data-tip="%2$s">%3$s</mark>', sanitize_key( $status ), $label, $label );
 
 			break;
 
 			case 'transfer_status':
 
-				if ( ! $export->transfer_status ) {
+				if ( ! $export->get_transfer_status() ) {
 
 					return __( 'N/A', 'woocommerce-customer-order-csv-export' );
 
 				} else {
 
-					$label = $this->statuses[ $export->transfer_status ];
-					return sprintf( '<mark class="%1$s tips" data-tip="%2$s">%3$s</mark>', sanitize_key( $export->transfer_status ), $label, $label );
+					$label = $this->statuses[ $export->get_transfer_status() ];
+					return sprintf( '<mark class="%1$s tips" data-tip="%2$s">%3$s</mark>', sanitize_key( $export->get_transfer_status() ), $label, $label );
 				}
 
 			break;
 
 			case 'invocation':
 
-				return 'auto' === $export->invocation ? esc_html__( 'Auto', 'woocommerce-customer-order-csv-export' ) : esc_html__( 'Manual', 'woocommerce-customer-order-csv-export' );
+				return 'auto' === $export->get_invocation() ? esc_html__( 'Auto', 'woocommerce-customer-order-csv-export' ) : esc_html__( 'Manual', 'woocommerce-customer-order-csv-export' );
 
 			break;
 
 			case 'filename':
 
-				$filename = basename( $export->file_path );
+				return esc_html( $export->get_filename() );
 
-				// strip random part from filename, which is prepended to the filename and
-				// separated with a dash
-				$filename = substr( $filename, strpos( $filename, '-' ) + 1 );
-
-				return esc_html( $filename );
 			break;
 
 			case 'export_type':
 
-				if ( 'orders' === $export->type ) {
+				if ( 'orders' === $export->get_type() ) {
 
 					return esc_html__( 'Orders', 'woocommerce-customer-order-csv-export' );
 
-				} elseif ( 'customers' === $export->type ) {
+				} elseif ( 'customers' === $export->get_type() ) {
 
 					return esc_html__( 'Customers', 'woocommerce-customer-order-csv-export' );
+
+				} elseif ( 'coupons' === $export->get_type() ) {
+
+					return esc_html__( 'Coupons', 'woocommerce-customer-order-csv-export' );
 				}
 			break;
 
 			case 'export_date':
-				return date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $export->created_at ) );
+				return date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $export->get_created_at() ) );
 			break;
+
+			default:
+
+				/**
+				 * Allow actors adding custom columns to include their own column data.
+				 *
+				 * @since 4.4.5
+				 *
+				 * @param string $content the column content
+				 * @param string $column_name the column name
+				 * @param \stdClass $export the export job
+				 */
+				return apply_filters( 'wc_customer_order_csv_export_admin_export_list_custom_column', '', $column_name, $export );
 		}
 	}
 
 
 	/**
-	 * Output actions column content for the given export
+	 * Outputs actions column content for the given export.
 	 *
 	 * @since 4.0.0
-	 * @param stdClass $export
+	 *
+	 * @param object $export export job object
 	 */
 	public function column_file_actions( $export ) {
 
+		$export = wc_customer_order_csv_export_get_export( $export );
+
+		if ( ! $export ) {
+			return;
+		}
+
 		?><p>
 			<?php
-				$actions = array();
+				$actions = [];
 
-				if ( 'completed' === $export->status ) {
+				if ( 'completed' === $export->get_status() ) {
 
 					$download_url = wp_nonce_url( admin_url(), 'download-export' );
 
-					$download_url = add_query_arg( array(
+					$download_url = add_query_arg( [
 						'download_exported_csv_file' => 1,
-						'export_id'                  => $export->id,
-					), $download_url );
+						'export_id'                  => $export->get_id(),
+					], $download_url );
 
-					$actions['download'] = array(
+					$actions['download'] = [
 						'url'    => $download_url,
 						'name'   => esc_html__( 'Download', 'woocommerce-customer-order-csv-export' ),
 						'action' => 'download'
-					);
+					];
 
-					if ( $auto_export_method = wc_customer_order_csv_export()->get_methods_instance()->get_auto_export_method( $export->type ) ) {
+					if ( $auto_export_method = wc_customer_order_csv_export()->get_methods_instance()->get_auto_export_method( $export->get_type() ) ) {
 
 						if ( 'local' !== $auto_export_method ) {
 
 							$label = wc_customer_order_csv_export()->get_methods_instance()->get_export_method_label( $auto_export_method );
 
 							$transfer_url = wp_nonce_url( admin_url(), 'transfer-export' );
-							$transfer_url = add_query_arg( array(
+							$transfer_url = add_query_arg( [
 								'transfer_csv_export' => 1,
-								'export_id'           => $export->id,
-							), $transfer_url );
+								'export_id'           => $export->get_id(),
+							], $transfer_url );
 
-							$actions['transfer'] = array(
+							$actions['transfer'] = [
 								'url'    => $transfer_url,
 								/* translators: Placeholders: %s - via [method], full example: Send via Email */
 								'name'   => sprintf( esc_html__( 'Send %s', 'woocommerce-customer-order-csv-export' ), $label ),
 								'action' => 'email' === $auto_export_method ? 'email' : 'transfer',
-							);
+							];
 						}
 					}
 
+				} elseif ( 'processing' === $export->get_status() && wc_customer_order_csv_export()->is_batch_processing_enabled() ) {
+
+					$actions['resume'] = [
+						'name'   => __( 'Resume', 'woocommerce-customer-order-csv-export' ),
+						'action' => 'resume',
+						'url'    => '#',
+					];
 				}
 
 				$delete_url = wp_nonce_url( admin_url(), 'delete-export' );
-				$delete_url = add_query_arg( array(
+				$delete_url = add_query_arg( [
 					'delete_csv_export' => 1,
-					'export_id'         => $export->id,
-				), $delete_url );
+					'export_id'         => $export->get_id(),
+				], $delete_url );
 
-				$done = in_array( $export->status, array( 'completed', 'failed' ), true );
+				$done = in_array( $export->get_status(), [ 'completed', 'failed' ], true );
 
-				$actions['delete'] = array(
+				$actions['delete'] = [
 					'url'    => $delete_url,
 					'name'   => $done ? esc_html__( 'Delete', 'woocommerce-customer-order-csv-export' ) : esc_html__( 'Cancel', 'woocommerce-customer-order-csv-export' ),
 					'action' => $done ? 'delete' : 'cancel',
-				);
+				];
 
 				/**
 				 * Allow actors to change the available actions for an export in Exports List
@@ -250,7 +294,7 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 				$actions = apply_filters( 'wc_customer_order_csv_export_admin_export_actions', $actions, $export );
 
 				foreach ( $actions as $action ) {
-					printf( '<a class="button tips %1$s" href="%2$s" data-tip="%3$s">%4$s</a>', esc_attr( $action['action'] ), esc_url( $action['url'] ), esc_attr( $action['name'] ), esc_attr( $action['name'] ) );
+					printf( '<a class="button tips %1$s" href="%2$s" data-tip="%3$s" data-export-id="%4$s">%5$s</a>', esc_attr( $action['action'] ), esc_url( $action['url'] ), esc_attr( $action['name'] ), esc_attr( $export->get_id() ), esc_attr( $action['name'] ) );
 				}
 			?>
 		</p><?php
@@ -262,13 +306,28 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 	 * Handles the checkbox column output.
 	 *
 	 * @since 4.0.0
-	 * @param stdClass $export
+	 *
+	 * @param object $export export job object
 	 */
 	public function column_cb( $export ) {
 
-		if ( current_user_can( 'manage_woocommerce' ) ) : ?>
-			<label class="screen-reader-text" for="cb-select-<?php echo sanitize_html_class( $export->id ); ?>"><?php esc_html_e( 'Select export' ); ?></label>
-			<input id="cb-select-<?php echo sanitize_html_class( $export->id ); ?>" type="checkbox" name="export[]" value="<?php echo esc_attr( $export->id ); ?>" />
+		$export = wc_customer_order_csv_export_get_export( $export );
+
+		if ( ! $export ) {
+			return;
+		}
+
+		if ( current_user_can( 'manage_woocommerce_csv_exports' ) ) : ?>
+			<label
+                    class="screen-reader-text"
+                    for="cb-select-<?php echo sanitize_html_class( $export->get_id() ); ?>"
+            ><?php esc_html_e( 'Select export' ); ?></label>
+			<input
+                    id="cb-select-<?php echo sanitize_html_class( $export->get_id() ); ?>"
+                    type="checkbox"
+                    name="export[]"
+                    value="<?php echo esc_attr( $export->get_id() ); ?>"
+            />
 			<div class="locked-indicator"></div>
 		<?php endif;
 	}
@@ -283,9 +342,9 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 
 		// set column headers manually, see https://codex.wordpress.org/Class_Reference/WP_List_Table#Extended_Properties
 		$columns               = $this->get_columns();
-		$hidden                = array();
-		$sortable              = array();
-		$this->_column_headers = array( $columns, $hidden, $sortable );
+		$hidden                = [];
+		$sortable              = [];
+		$this->_column_headers = [ $columns, $hidden, $sortable ];
 
 		$this->items = wc_customer_order_csv_export()->get_export_handler_instance()->get_exports();
 	}
@@ -313,9 +372,9 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 	 */
 	protected function get_bulk_actions() {
 
-		return array(
+		return [
 			'delete' => esc_html__( 'Delete', 'woocommerce-customer-order-csv-export' ),
-		);
+		];
 	}
 
 }

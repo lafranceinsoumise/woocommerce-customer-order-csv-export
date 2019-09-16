@@ -16,9 +16,8 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
@@ -39,8 +38,9 @@ interface WC_Customer_Order_CSV_Export_Method {
 	 * uploading via FTP to a remote server
 	 *
 	 * @since 3.0.0
-	 * @param string $file_path path to the file
+	 *
+	 * @param \WC_Customer_Order_CSV_Export_Export|string $export the export object or a path to an export file
 	 */
-	public function perform_action( $file_path );
+	public function perform_action( $export );
 
 }

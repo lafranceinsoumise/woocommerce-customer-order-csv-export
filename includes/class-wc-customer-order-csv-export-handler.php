@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Handler
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Customer/Order CSV Export Handler
@@ -44,11 +45,12 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 * In 4.0.0 Removed constructor arguments, pass arguments to dedicated methods instead
 	 *
 	 * @since 3.0.0
-	 * @return \WC_Customer_Order_CSV_Export_Handler
 	 */
 	public function __construct() {
 
-		add_action( 'wc_customer_order_csv_export_unlink_temp_file', array( $this, 'unlink_temp_file' ) );
+		add_action( 'wc_customer_order_csv_export_unlink_temp_file', [ $this, 'unlink_temp_file' ] );
+
+		add_filter( 'wc_customer_order_csv_export_background_export_new_job_attrs', [ $this, 'export_header' ], 10, 2 );
 	}
 
 
@@ -89,10 +91,10 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 
 	/**
-	 * Exports a test file via the given method
+	 * Exports a test file via the given method.
 	 *
 	 * @since 3.0.0
-	 * @throws SV_WC_Plugin_Exception
+	 *
 	 * @param string $method the export method
 	 * @param string $export_type Optional, the export type. defaults to `orders`
 	 * @return array with 2 elements - success/error message, and message type
@@ -110,7 +112,7 @@ class WC_Customer_Order_CSV_Export_Handler {
 			if ( ! is_object( $export ) ) {
 
 				/** translators: %s - export method identifier */
-				throw new SV_WC_Plugin_Exception( sprintf( __( 'Invalid Export Method: %s', 'woocommerce-customer-order-csv-export' ), $method ) );
+				throw new Framework\SV_WC_Plugin_Exception( sprintf( __( 'Invalid Export Method: %s', 'woocommerce-customer-order-csv-export' ), $method ) );
 			}
 
 			// create a temp file with the test data
@@ -118,33 +120,34 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 			// simple test file
 			if ( $export->perform_action( $temp_file ) ) {
-				return array( __( 'Test was successful!', 'woocommerce-customer-order-csv-export' ), 'success' );
+				return [ __( 'Test was successful!', 'woocommerce-customer-order-csv-export' ), 'success' ];
 			} else {
-				return array( __( 'Test failed!', 'woocommerce-customer-order-csv-export' ), 'error' );
+				return [ __( 'Test failed!', 'woocommerce-customer-order-csv-export' ), 'error' ];
 			}
 
-		} catch ( SV_WC_Plugin_Exception $e ) {
+		} catch ( Framework\SV_WC_Plugin_Exception $e ) {
 
 			// log errors
 			wc_customer_order_csv_export()->log( $e->getMessage() );
 
 			/** translators: %s - error message */
-			return array( sprintf( __( 'Test failed: %s', 'woocommerce-customer-order-csv-export' ), $e->getMessage() ), 'error' );
+			return [ sprintf( __( 'Test failed: %s', 'woocommerce-customer-order-csv-export' ), $e->getMessage() ), 'error' ];
 		}
 	}
 
 
 	/**
-	 * Create a temp file that is automatically removed on shutdown or after a given delay
+	 * Creates a temp file that is automatically removed on shutdown or after a given delay.
 	 *
 	 * @since 4.0.0
+	 *
 	 * @param string $filename the filename
-	 * @param string $source path to source file or the data to write to the file
+	 * @param string|resource $source path to source file, data to write to the file, or a resource containing the data
 	 * @param string $temp_path path to dir to place the temp file in. Defaults to the WP temp dir.
 	 * @param bool|int $delay_remove Delay temp file removal by amount of seconds.
 	 *                               If boolean true, this will default to 60 seconds.
 	 *                               Normally, temp files are removed once the script
-	 *                               exists, but with this param set to true, it's possible
+	 *                               exits, but with this param set to true, it's possible
 	 *                               to keep it for a short while. This helps
 	 *                               in cases when the file has to be accessible briefly
 	 *                               after the script exists (such as for redirect downloads ).
@@ -157,14 +160,26 @@ class WC_Customer_Order_CSV_Export_Handler {
 		// prepend the temp directory to filename
 		$filename = untrailingslashit( $temp_path ) . '/' . $filename;
 
+		// source is a resource that contains the data
+		if ( is_resource( $source ) ) {
+
+			touch( $filename );
+
+			$temp_file = @fopen( $filename, 'w+' );
+
+			while ( $data = fread( $source, 1024 ) ) {
+				fwrite( $temp_file, $data );
+			}
+
+			fclose( $temp_file );
+
 		// source is a path to existing file
-		if ( is_readable( $source ) ) {
+		} elseif ( is_string( $source ) && is_readable( $source ) ) {
 
 			copy( $source, $filename  );
-		}
 
 		// if not a readable source file, it's most likely just raw data
-		else {
+		} else {
 
 			// create the file
 			touch( $filename );
@@ -185,13 +200,13 @@ class WC_Customer_Order_CSV_Export_Handler {
 				$delay_remove = 60; // default to 60 seconds
 			}
 
-			wp_schedule_single_event( time() + $delay_remove, 'wc_customer_order_csv_export_unlink_temp_file', array( $filename ) );
+			wp_schedule_single_event( time() + $delay_remove, 'wc_customer_order_csv_export_unlink_temp_file', [ $filename ] );
 		}
 
 		// ...or simply remove on shutdown
 		else {
 			$this->temp_filename = $filename;
-			register_shutdown_function( array( $this, 'unlink_temp_file' ) );
+			register_shutdown_function( [ $this, 'unlink_temp_file' ] );
 		}
 
 		return $filename;
@@ -314,7 +329,7 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 *
 	 * @since 4.0.0
 	 * @param array $ids customer IDs to to mark as exported. also accepts an array of arrays with billing email and
-	 *                   order Ids, for guest customers: array( $user_id, array( $billing_email, $order_id ) )
+	 *                   order Ids, for guest customers: [ $user_id, [ $billing_email, $order_id ] ]
 	 * @param string $method the export method, `download`, `ftp`, `http_post`, or `email`
 	 */
 	public function mark_customers_as_exported( $ids, $method = 'download' ) {
@@ -398,9 +413,9 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 		$pre_replace_filename = get_option( 'wc_customer_order_csv_export_' . $export_type . '_filename' );
 
-		$variables = array(
+		$variables = [
 			'%%timestamp%%' => date( 'Y_m_d_H_i_s', current_time( 'timestamp' ) ),
-		);
+		];
 
 		if ( 'orders' === $export_type ) {
 			$variables['%%order_ids%%'] = implode( '-', $ids );
@@ -439,21 +454,27 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 * @return \WC_Customer_Order_CSV_Export_Background_Export instance
 	 */
 	private function get_background_export_handler() {
+
 		return wc_customer_order_csv_export()->get_background_export_instance();
 	}
 
 
 	/**
-	 * Get an export by its ID
+	 * Gets an export by its ID.
 	 *
 	 * A simple wrapper around SV_WP_Background_Job_Handler::get_job(), for convenience
 	 *
-	 * @since 4.0.0
 	 * @see SV_WP_Background_Job_Handler::get_job()
+	 *
+	 * @since 4.0.0
+	 * @deprecated since 4.5.0
+	 *
 	 * @param string $id
 	 * @return object|null
 	 */
 	public function get_export( $id ) {
+
+		_doing_it_wrong( 'WC_Customer_Order_CSV_Export_Handler::get_export()', __( 'This method has been deprecated. Use wc_customer_order_csv_export_get_export() instead.', 'woocommerce-customer-order-csv-export' ), '4.5.0' );
 
 		return $this->get_background_export_handler()->get_job( $id );
 	}
@@ -469,73 +490,62 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 * @param array $args Optional. An array of arguments passed to SV_WP_Background_Job_Handler::get_jobs()
 	 * @return array Found export objects
 	 */
-	public function get_exports( $args = array() ) {
+	public function get_exports( $args = [] ) {
 
 		return wc_customer_order_csv_export()->get_background_export_instance()->get_jobs( $args );
 	}
 
 
 	/**
-	 * Transfer an export via the given method (FTP, etc)
+	 * Transfers an export via the given method (FTP, etc).
 	 *
 	 * @since 4.0.0
-	 * @throws SV_WC_Plugin_Exception
+	 *
 	 * @param string|object $export_id Export (job) instance or ID
 	 * @param string $export_method Export method, will default to export's own if not provided
-	 * @return mixed
+	 * @throws Framework\SV_WC_Plugin_Exception
+	 * @throws \Exception
 	 */
 	public function transfer_export( $export_id, $export_method = null ) {
 
-		$export        = is_object( $export_id ) ? $export_id : $this->get_export( $export_id );
-		$export_method = $export_method ? $export_method : $export->method;
+		$export = wc_customer_order_csv_export_get_export( $export_id );
 
 		if ( ! $export ) {
 			/* translators: Placeholders: %s - export ID */
-			throw new SV_WC_Plugin_Exception( sprintf( esc_html__( 'Could not find export: %s', 'woocommerce-customer-order-csv-export' ), $export_id ) );
+			throw new Framework\SV_WC_Plugin_Exception( sprintf( esc_html__( 'Could not find export: %s', 'woocommerce-customer-order-csv-export' ), $export_id ) );
 		}
 
-		$_export_method = wc_customer_order_csv_export()->get_methods_instance()->get_export_method( $export_method, $export->type, (array) $export );
+		$export_method  = $export_method ? $export_method : $export->get_transfer_method();
+		$_export_method = wc_customer_order_csv_export()->get_methods_instance()->get_export_method( $export_method, $export->get_type(), $export->get_completed_at() );
 
 		if ( ! is_object( $_export_method ) ) {
 			/* translators: Placeholders: %s - export method */
-			throw new SV_WC_Plugin_Exception( sprintf( esc_html__( 'Invalid Export Method: %s', 'woocommerce-customer-order-csv-export' ), $export_method ) );
+			throw new Framework\SV_WC_Plugin_Exception( sprintf( esc_html__( 'Invalid Export Method: %s', 'woocommerce-customer-order-csv-export' ), $export_method ) );
 		}
 
-		$filename = basename( $export->file_path );
-
-		// strip random part from filename
-		$filename = substr( $filename, strpos( $filename, '-' ) + 1 );
-
-		// create a temp file with the random part stripped from the filename, so
-		// that the filename appears without the random part in the destination (email, ftp, etc)
-		$temp_file_path = $this->create_temp_file( $filename, $export->file_path );
-
 		// indicate that the transfer has started
-		$export->transfer_status = 'processing';
-
-		$this->update_export( $export );
+		$export->update_transfer_status( 'processing' );
 
 		// perform the transfer action
 		try {
 
-			$_export_method->perform_action( $temp_file_path );
+			$_export_method->perform_action( $export );
 
-			$export->transfer_status = 'completed';
-
-			$this->update_export( $export );
+			$export->update_transfer_status( 'completed' );
 
 			// Mark orders/customers as exported
-			if ( 'orders' === $export->type ) {
-				$this->mark_orders_as_exported( $export->object_ids, $export->method );
-			} elseif ( 'customers' === $export->type ) {
-				$this->mark_customers_as_exported( $export->object_ids, $export->method );
+			if ( 'orders' === $export->get_type() ) {
+
+				$this->mark_orders_as_exported( $export->get_object_ids(), $export->get_transfer_method() );
+
+			} elseif ( 'customers' === $export->get_type() ) {
+
+				$this->mark_customers_as_exported( $export->get_object_ids(), $export->get_transfer_method() );
 			}
 
-		} catch ( SV_WC_Plugin_Exception $e ) {
+		} catch ( Exception $e ) {
 
-			$export->transfer_status = 'failed';
-
-			$this->update_export( $export );
+			$export->update_transfer_status( 'failed' );
 
 			throw $e;
 		}
@@ -583,15 +593,18 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 
 	/**
-	 * Get exports direcotry path in local filesystem
+	 * Gets exports directory path in local filesystem.
 	 *
 	 * @since 4.0.0
+	 * @deprecated since 4.5.0
+	 *
 	 * @return string
 	 */
 	public function get_exports_dir() {
 
-		$upload_dir = wp_upload_dir( null, false );
-		return $upload_dir['basedir'] . '/csv_exports';
+		_doing_it_wrong( 'WC_Customer_Order_CSV_Export_Handler::get_exports_dir()', __( 'This method has been deprecated.' ), '4.5.0' );
+
+		return '';
 	}
 
 
@@ -599,12 +612,15 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 * Get exports directory URL for downloads
 	 *
 	 * @since 4.0.0
+	 * @deprecated since 4.5.0
+	 *
 	 * @return string
 	 */
 	public function get_exports_url() {
 
-		$uploads_dir = wp_upload_dir( null, false );
-		return $uploads_dir['baseurl'] . '/csv_exports';
+		_doing_it_wrong( 'WC_Customer_Order_CSV_Export_Handler::get_exports_dir()', __( 'This method has been deprecated.' ), '4.5.0' );
+
+		return '';
 	}
 
 
@@ -612,7 +628,7 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 * Kick off an export
 	 *
 	 * @since 4.0.0
-	 * @throws SV_WC_Plugin_Exception
+	 *
 	 * @param int|string|array $ids
 	 * @param array $args {
 	 *                 An array of arguments
@@ -620,20 +636,21 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 *                 @type string $method Export transfer method, such as `email`, `ftp`, etc. Defaults to `download`
 	 *                 @type string $invocation Export invocation type, used for informational purposes. One of `manual` or `auto`, defaults to `manual`
 	 * }
-	 * @return object|false Background export job or false on failure
+	 * @return \WC_Customer_Order_CSV_Export_Export|false export object or false on failure
+	 * @throws Framework\SV_WC_Plugin_Exception
 	 */
-	public function start_export( $ids, $args = array() ) {
+	public function start_export( $ids, $args = [] ) {
 
 		// make sure default args are set
-		$args = wp_parse_args( $args, array(
+		$args = wp_parse_args( $args, [
 			'type'       => 'orders',
 			'method'     => 'download',
 			'invocation' => 'manual',
-		) );
+		] );
 
 		// handle single order/customer exports
 		if ( ! is_array( $ids ) ) {
-			$ids = array( $ids );
+			$ids = [ $ids ];
 		}
 
 		/**
@@ -647,118 +664,113 @@ class WC_Customer_Order_CSV_Export_Handler {
 		 */
 		$ids = apply_filters( 'wc_customer_order_csv_export_ids', $ids, $args );
 
-		$exports_dir = $this->get_exports_dir();
-		$filename    = $this->replace_filename_variables( $ids, $args['type'] );
-
-		if ( ! $filename ) {
-			throw new SV_WC_Plugin_Exception( esc_html__( "No filename given for export file, can't export", 'woocommerce-customer-order-csv-export' ) );
+		// no need to export if we have no ids
+		if ( empty( $ids ) ) {
+			return false;
 		}
 
-		$file_path = $exports_dir . '/' . uniqid( null, true ) . '-' . $filename;
-
-		$stream = @fopen( $file_path, 'w' );
-
-		if ( ! is_writable( $file_path ) || false === $stream ) {
-			/* translators: Placeholders: %s - file name */
-			throw new SV_WC_Plugin_Exception( sprintf( esc_html__( 'Could not open the export file %s for writing', 'woocommerce-customer-order-csv-export' ), $file_path ) );
-		}
-
-		$background_export = $this->get_background_export_handler();
-		$header            = $this->get_generator( $args['type'], $ids )->get_header();
-
-		// write header if provided
-		if ( null !== $header  ) {
-			fputs( $stream, $header );
-		}
-
-		fclose( $stream );
-
-		$job_attrs = array(
+		$export_args = [
 			'object_ids'      => $ids,
-			'file_path'       => $file_path,
 			'invocation'      => $args['invocation'],
 			'type'            => $args['type'],
 			'method'          => $args['method'],
 			'transfer_status' => null,
-		);
+			'storage_method'  => 'database',
+			'filename'        => $this->replace_filename_variables( $ids, $args['type'] ),
+			'dispatch'        => ! wc_customer_order_csv_export()->is_batch_processing_enabled(),
+		];
 
-		$job = $background_export->create_job( $job_attrs );
+		/**
+		 * Filters all the export arguments just before starting a new export.
+		 *
+		 * @see \WC_Customer_Order_CSV_Export_Export::__construct() for a full list of argument options
+		 *
+		 * @since 4.5.0
+		 *
+		 * @param array $export_args the arguments being passed in to this export
+		 */
+		$export_args = apply_filters( 'wc_customer_order_csv_export_start_export_args', $export_args );
 
-		$background_export->dispatch();
-
-		return $job;
+		return new WC_Customer_Order_CSV_Export_Export( $export_args );
 	}
 
 
 	/**
-	 * Export a single item to the export's file path
+	 * Exports a single item.
 	 *
 	 * This method will normally only ever be called from the background export to
-	 * export items one-by-one to a file.
+	 * export items one-by-one.
 	 *
 	 * In 4.0.3 renamed from export_item_to_file to export_item, removed $file_path and
 	 * $export_type params, added $export param
 	 *
 	 * @since 4.0.0
-	 * @param mixed $item Item to export
-	 * @param object $export Export (job) associated with the item
-	 */
-	public function export_item( $item, $export ) {
-
-		if ( empty( $export->file_path ) ) {
-			wc_customer_order_csv_export()->log( esc_html__( 'No export file path provided, cannot export item.', 'woocommerce-customer-order-csv-export' ) );
-			return;
-		}
-
-		$stream = fopen( $export->file_path, 'a' );
-
-		if ( false === $stream ) {
-
-			/* translators: Placeholders: %s - file path */
-			wc_customer_order_csv_export()->log( sprintf( esc_html__( 'Could not open the export file %s for appending.', 'woocommerce-customer-order-csv-export' ), $export->file_path ) );
-			return;
-		}
-
-		$generator = $this->get_generator( $export->type, $export->object_ids );
-
-		fputs( $stream, $generator->get_output( array( $item ) ) );
-
-		# clear the WP cache, as per https://github.com/woothemes/woocommerce/issues/7310#issuecomment-100980589
-		wp_cache_flush();
-
-		fclose( $stream );
-	}
-
-
-	/**
-	 * Update an export instance
 	 *
-	 * @since 4.0.0
-	 * @param object $export
+	 * @param mixed $item Item to export
+	 * @param object $job_obj Export (job) associated with the item
 	 */
-	private function update_export( $export ) {
+	public function export_item( $item, $job_obj ) {
 
-		$this->get_background_export_handler()->update_job( $export );
+		if ( $export = wc_customer_order_csv_export_get_export( $job_obj ) ) {
+
+			$export->export_item( $item );
+		}
 	}
 
 
 	/**
-	 * Finish off an export
+	 * Stores the export header before the job is enqueued.
+	 *
+	 * This is necessary to prevent a race condition, since the job ID is needed to persist any part of the
+	 * export, but we can't get the ID before it is enqueued except through this filter, and we need to make
+	 * sure that the header is the first item within the exported data.
+	 *
+	 * @internal
+	 *
+	 * @since 4.5.0
+	 *
+	 * @param array $job_attrs job attributes
+	 * @param string $job_id the job ID
+	 * @return array job attributes
+	 */
+	public function export_header( $job_attrs, $job_id ) {
+
+		if ( isset( $job_attrs['type'], $job_attrs['object_ids'], $job_attrs['storage_method'] ) ) {
+
+			// throw in the job ID and emulate a stdClass job object
+			$job    = (object) array_merge( $job_attrs, [ 'id' => $job_id ] );
+			$export = wc_customer_order_csv_export_get_export( $job );
+
+			if ( $export ) {
+
+				$header = $export->get_generator()->get_header();
+
+				if ( $header && '' !== $header ) {
+
+					$export->store_item( $header );
+				}
+			}
+		}
+
+		return $job_attrs;
+	}
+
+
+	/**
+	 * Finishes off an export.
 	 *
 	 * @since 4.0.0
 	 * @param object|string $export Export object or ID
 	 */
 	public function finish_export( $export ) {
 
-		if ( is_string( $export ) ) {
-			$export = $this->get_export( $export );
-		}
+		$export = wc_customer_order_csv_export_get_export( $export );
 
 		if ( ! $export ) {
 			return;
 		}
 
-		if ( 'auto' === $export->invocation ) {
+		if ( 'auto' === $export->get_invocation() ) {
 
 			/**
 			 * Auto-Export Action.
@@ -769,34 +781,19 @@ class WC_Customer_Order_CSV_Export_Handler {
 			 * @since 3.0.0
 			 * @param array $order_ids order IDs that were exported
 			 */
-			do_action( 'wc_customer_order_csv_export_' . $export->type . '_exported', $export->object_ids );
+			do_action( 'wc_customer_order_csv_export_' . $export->get_type() . '_exported', $export->get_object_ids() );
 		}
 
-		// TODO: remove the following deprecated filter in next major release {IT 2016-06-21}
+		if ( in_array( $export->get_transfer_method(), [ 'download', 'local' ], true ) ) {
 
-		// filter the final generated CSV
-		$generated_csv = file_get_contents( $export->file_path );
+			// mark orders/customers as exported
+			if ( 'orders' === $export->get_type() ) {
 
-		/**
-		 * Allow actors to change the generated CSV, such as removing headers.
-		 *
-		 * @since 4.0.0 moved here from WC_Customer_Order_CSV_Export_Generator class
-		 *
-		 * @since 3.0.6
-		 * @param string $csv - generated CSV file
-		 * @param \WC_Customer_Order_CSV_Export_Handler $this - generator class instance
-		 */
-		$csv = apply_filters( 'wc_customer_order_csv_export_generated_csv', $generated_csv, $this );
+				$this->mark_orders_as_exported( $export->get_object_ids(), $export->get_transfer_method() );
 
-		file_put_contents( $export->file_path, $csv );
+			} elseif ( 'customers' === $export->get_type() ) {
 
-		if ( 'download' === $export->method || 'local' === $export->method ) {
-
-			// Mark orders/customers as exported
-			if ( 'orders' === $export->type ) {
-				$this->mark_orders_as_exported( $export->object_ids, $export->method );
-			} elseif ( 'customers' === $export->type ) {
-				$this->mark_customers_as_exported( $export->object_ids, $export->method );
+				$this->mark_customers_as_exported( $export->get_object_ids(), $export->get_transfer_method() );
 			}
 
 		} else {
@@ -806,7 +803,7 @@ class WC_Customer_Order_CSV_Export_Handler {
 				// transfer file via the provided export method
 				$this->transfer_export( $export );
 
-			} catch ( SV_WC_Plugin_Exception $e ) {
+			} catch ( Framework\SV_WC_Plugin_Exception $e ) {
 
 				// log errors
 				/* translators: Placeholders: %s - error message */
@@ -820,16 +817,15 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 
 	/**
-	 * Handle a failed export
+	 * Handles a failed export.
 	 *
 	 * @since 4.0.0
-	 * @param object|string $export Export object or ID
+	 *
+	 * @param object|string $export Export job object or ID
 	 */
 	public function failed_export( $export ) {
 
-		if ( is_string( $export ) ) {
-			$export = $this->get_export( $export );
-		}
+		$export = wc_customer_order_csv_export_get_export( $export );
 
 		if ( ! $export ) {
 			return;
@@ -843,12 +839,12 @@ class WC_Customer_Order_CSV_Export_Handler {
 	 * Add export finished notice for a user
 	 *
 	 * @since 4.0.0
-	 * @param object|string $export Export object or ID
+	 * @param \WC_Customer_Order_CSV_Export_Export|object|string $export Export object or ID
 	 */
 	public function add_export_finished_notice( $export ) {
 
-		if ( is_string( $export ) ) {
-			$export = $this->get_export( $export );
+		if ( ! $export instanceof WC_Customer_Order_CSV_Export_Export ) {
+			$export = wc_customer_order_csv_export_get_export( $export );
 		}
 
 		// don't notify if no export found
@@ -856,42 +852,40 @@ class WC_Customer_Order_CSV_Export_Handler {
 			return;
 		}
 
-		$filename = basename( $export->file_path );
-
 		// Notify the user that the manual export failed
-		if ( 'manual' === $export->invocation ) {
+		if ( 'manual' === $export->get_invocation() ) {
 
-			$message_id = 'wc_customer_order_csv_export_finished_' . $export->id;
+			$message_id = 'wc_customer_order_csv_export_finished_' . $export->get_id();
 
 			// add notice for manually created exports
-			if ( $export->created_by && ! wc_customer_order_csv_export()->get_admin_notice_handler()->is_notice_dismissed( $message_id, $export->created_by ) ) {
+			if ( $export->get_created_by() && ! wc_customer_order_csv_export()->get_admin_notice_handler()->is_notice_dismissed( $message_id, $export->get_created_by() ) ) {
 
-				$export_notices = get_user_meta( $export->created_by, '_wc_customer_order_csv_export_notices', true );
+				$export_notices = get_user_meta( $export->get_created_by(), '_wc_customer_order_csv_export_notices', true );
 
 				if ( ! $export_notices ) {
-					$export_notices = array();
+					$export_notices = [];
 				}
 
-				$export_notices[] = $export->id;
+				$export_notices[] = $export->get_id();
 
-				update_user_meta( $export->created_by, '_wc_customer_order_csv_export_notices', $export_notices );
+				update_user_meta( $export->get_created_by(), '_wc_customer_order_csv_export_notices', $export_notices );
 			}
 
 		}
 
-		$successful = 'completed' === $export->status && ( ! $export->transfer_status || 'completed' === $export->transfer_status );
+		$successful = 'completed' === $export->get_status() && ( ! $export->get_transfer_status() || 'completed' === $export->get_transfer_status() );
 
 		// Notify admins that automatic exports are failing
-		if ( 'auto' === $export->invocation && ! $successful ) {
+		if ( ! $successful && 'auto' === $export->get_invocation() ) {
 
-			$failure_type      = 'failed' === $export->status ? 'export' : 'transfer';
-			$failure_notices   = get_option( 'wc_customer_order_csv_export_failure_notices', array() );
+			$failure_type      = 'failed' === $export->get_status() ? 'export' : 'transfer';
+			$failure_notices   = get_option( 'wc_customer_order_csv_export_failure_notices', [] );
 			$multiple_failures = ! empty( $failure_notices ) && ! empty( $failure_notices[ $failure_type ] );
 
-			$failure_notices[ $failure_type ] = array(
-				'export_id'         => $export->id,
+			$failure_notices[ $failure_type ] = [
+				'export_id'         => $export->get_id(),
 				'multiple_failures' => $multiple_failures,
-			);
+			];
 
 			update_option( 'wc_customer_order_csv_export_failure_notices', $failure_notices );
 		}
@@ -900,19 +894,22 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 
 	/**
-	 * Remove export finished notice from user meta
+	 * Removes export finished notice from user meta.
 	 *
 	 * @since 4.0.0
+	 *
 	 * @param object|string $export Export object or ID
 	 * @param int $user_id
 	 */
 	public function remove_export_finished_notice( $export, $user_id ) {
 
-		$export_id = is_string( $export ) ? $export : ( is_object( $export ) ? $export->id : null );
+		$export = wc_customer_order_csv_export_get_export( $export );
 
-		if ( ! $export_id || ! $user_id ) {
+		if ( ! $export || ! $user_id ) {
 			return;
 		}
+
+		$export_id = $export->get_id();
 
 		$export_notices = get_user_meta( $user_id, '_wc_customer_order_csv_export_notices', true );
 
@@ -936,17 +933,17 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 
 	/**
-	 * Remove expired exports
+	 * Removes expired exports.
 	 *
-	 * Deletes exports completed/failed more than 14 days ago
+	 * Deletes completed/failed exports older than the maximum age (14 days by default)
 	 *
 	 * @since 4.0.0
 	 */
 	public function remove_expired_exports() {
 
-		$args = array(
-			'status' => array( 'completed', 'failed' ),
-		);
+		$args = [
+			'status' => [ 'completed', 'failed' ],
+		];
 
 		// get all completed or failed jobs
 		$all_jobs = $this->get_exports( $args );
@@ -960,11 +957,38 @@ class WC_Customer_Order_CSV_Export_Handler {
 
 			$date = 'completed' === $job->status ? $job->completed_at : $job->failed_at;
 
-			// job completed/failed at least 14 days ago, remove it (along with the file)
-			if ( strtotime( $date ) <= strtotime( '14 days ago' ) ) {
-				$this->get_background_export_handler()->delete_job( $job );
+			// job completed/failed within the max age timeframe, remove it (along with the file)
+			if ( strtotime( $date ) <= current_time( 'timestamp' ) - $this->get_export_max_age() ) {
+
+				$export = wc_customer_order_csv_export_get_export( $job );
+
+				if ( $export ) {
+
+					$export->delete();
+				}
 			}
 		}
 	}
+
+
+	/**
+	 * Gets the maximum age of stored exports, in seconds.
+	 *
+	 * @since 4.6.3
+	 *
+	 * @return int
+	 */
+	public function get_export_max_age() {
+
+		/**
+		 * Filters the maximum age of stored exports.
+		 *
+		 * @since 4.6.3
+		 *
+		 * @param int $max_age the maximum age of stored exports, in seconds
+		 */
+		return (int) apply_filters( 'wc_customer_order_csv_export_start_export_max_age', 14 * DAY_IN_SECONDS );
+	}
+
 
 }

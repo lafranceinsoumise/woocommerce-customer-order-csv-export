@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Background-Export
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Customer/Order CSV Export Background Export
@@ -31,7 +32,7 @@ defined( 'ABSPATH' ) or exit;
  *
  * @since 4.0.0
  */
-class WC_Customer_Order_CSV_Export_Background_Export extends SV_WP_Background_Job_Handler {
+class WC_Customer_Order_CSV_Export_Background_Export extends Framework\SV_WP_Background_Job_Handler {
 
 
 	/**
@@ -47,9 +48,9 @@ class WC_Customer_Order_CSV_Export_Background_Export extends SV_WP_Background_Jo
 
 		parent::__construct();
 
-		add_action( "{$this->identifier}_job_complete", array( $this, 'finish_export' ) );
-		add_action( "{$this->identifier}_job_failed",   array( $this, 'failed_export' ) );
-		add_action( "{$this->identifier}_job_deleted",  array( $this, 'delete_export_data' ) );
+		add_action( "{$this->identifier}_job_complete", [ $this, 'finish_export' ] );
+		add_action( "{$this->identifier}_job_failed",   [ $this, 'failed_export' ] );
+		add_action( "{$this->identifier}_job_deleted",  [ $this, 'delete_export_data' ] );
 	}
 
 
@@ -106,6 +107,54 @@ class WC_Customer_Order_CSV_Export_Background_Export extends SV_WP_Background_Jo
 		if ( $job->created_by ) {
 			wc_customer_order_csv_export()->get_export_handler_instance()->remove_export_finished_notice( $job->id, $job->created_by );
 		}
+	}
+
+
+	/**
+	 * Gets an export status message.
+	 *
+	 * @since 4.4.0
+	 *
+	 * @param string $status status slug
+	 * @param stdClass|string|null $export export job ID or object
+	 * @return string status message
+	 */
+	public function get_export_status_message( $status, $export = null ) {
+
+		$message      = '';
+		$logs_message = sprintf( __( 'Additional details may be found in the CSV Export %1$slogs%2$s.', 'woocommerce-customer-order-csv-export' ), '<a href="' . admin_url( 'admin.php?page=wc-status&tab=logs' ) . '">', '</a>' );
+
+		switch ( $status ) {
+
+			case 'not-found':
+				$message = sprintf( __( 'No export found with id %s. It may have been cancelled during export.', 'woocommerce-customer-order-csv-export' ), $export );
+			break;
+
+			case 'failed':
+				$message = __( 'Unfortunately, your export failed.', 'woocommerce-customer-order-csv-export' ) . ' ' . $logs_message;
+			break;
+
+			case 'transfer-failed':
+
+				if ( is_object( $export ) && $export->method ) {
+
+					$label = wc_customer_order_csv_export()->get_methods_instance()->get_export_method_label( $export->method );
+
+					/* translators: Placeholders: %s - a transfer method name such as Email or FTP */
+					$message = sprintf( __( 'Export completed successfully, but the transfer %s failed.', 'woocommerce-customer-order-csv-export' ), $label ) . ' ';
+
+				} else {
+
+					$message = __( 'Export completed successfully, but the transfer failed.', 'woocommerce-customer-order-csv-export' ) . ' ';
+				}
+
+				/* translators: Placeholders: %1$s - <a> tag, %2$s - </a> tag */
+				$message .= sprintf( __( 'Exported file is available under %1$sExport List%2$s.', 'woocommerce-customer-order-csv-export' ), '<a href="' . admin_url( 'admin.php?page=wc_customer_order_csv_export&tab=export_list' ) . '">', '</a>' ) . ' ' . $logs_message;
+
+			break;
+		}
+
+		return $message;
 	}
 
 }

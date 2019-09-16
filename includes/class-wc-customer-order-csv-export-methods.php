@@ -16,19 +16,20 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Classes
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
 
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
+
 /**
  * Customer/Order CSV Export Methods
  *
  * Handles loading export methods and provides utility functions for
- * checking if auto export methods are configurered, etc.
+ * checking if auto export methods are configured, etc.
  *
  * @since 4.0.0
  */
@@ -95,12 +96,14 @@ class WC_Customer_Order_CSV_Export_Methods {
 	 * WC_Customer_Order_CSV_Export_Handler class
 	 *
 	 * @since 3.0.0
+	 *
 	 * @param string $method the export method, `download`, `ftp`, `http_post`, or `email`
 	 * @param string $export_type the export type, `orders` or `customers`
-	 * @param array $args Optional. An array of arguments to pass to the export method
+	 * @param string $completed_at optional - a string representation of the completion date
 	 * @return \WC_Customer_Order_CSV_Export_Method the export method
+	 * @throws Framework\SV_WC_Plugin_Exception
 	 */
-	public function get_export_method( $method, $export_type, $args = array() ) {
+	public function get_export_method( $method, $export_type, $completed_at = '' ) {
 
 		$path          = wc_customer_order_csv_export()->get_plugin_path() . '/includes/export-methods';
 		$option_prefix = 'wc_customer_order_csv_export_' . $export_type . '_';
@@ -117,7 +120,7 @@ class WC_Customer_Order_CSV_Export_Methods {
 				$ftp_path = get_option( $option_prefix . 'ftp_path', '' );
 				$ftp_path = $ftp_path ? trailingslashit( $ftp_path ) : '';
 
-				$args = array(
+				$args = [
 					'ftp_server'       => get_option( $option_prefix . 'ftp_server' ),
 					'ftp_username'     => get_option( $option_prefix . 'ftp_username' ),
 					'ftp_password'     => get_option( $option_prefix . 'ftp_password', '' ),
@@ -125,7 +128,7 @@ class WC_Customer_Order_CSV_Export_Methods {
 					'ftp_path'         => $ftp_path,
 					'ftp_security'     => get_option( $option_prefix . 'ftp_security' ),
 					'ftp_passive_mode' => get_option( $option_prefix . 'ftp_passive_mode' ),
-				);
+				];
 
 				switch ( $args['ftp_security'] ) {
 
@@ -150,10 +153,10 @@ class WC_Customer_Order_CSV_Export_Methods {
 			case 'http_post':
 				require_once( $path . '/class-wc-customer-order-csv-export-method-http-post.php' );
 
-				$args = array(
+				$args = [
 					'content_type'  => 'text/csv',
 					'http_post_url' => get_option( $option_prefix . 'http_post_url' ),
-				);
+				];
 
 				return new WC_Customer_Order_CSV_Export_Method_HTTP_POST( $args );
 
@@ -189,15 +192,15 @@ class WC_Customer_Order_CSV_Export_Methods {
 					break;
 				}
 
-				$timestamp = ! empty( $args['completed_at'] ) ? strtotime( $args['completed_at'] ) : current_time( 'timestamp' );
+				$timestamp = '' !== $completed_at ? strtotime( $completed_at ) : current_time( 'timestamp' );
 				$message   = sprintf( $message, date_i18n( wc_date_format(), $timestamp ) );
 
-				$args = array(
+				$args = [
 					'email_recipients' => get_option( $option_prefix . 'email_recipients' ),
 					'email_subject'    => $subject,
 					'email_message'    => $message,
 					'email_id'         => 'wc_customer_order_csv_export',
-				);
+				];
 
 				return new WC_Customer_Order_CSV_Export_Method_Email( $args );
 
@@ -243,12 +246,12 @@ class WC_Customer_Order_CSV_Export_Methods {
 		 * @since 4.0.0
 		 * @param array
 		 */
-		return apply_filters( 'wc_customer_order_csv_export_methods', array(
+		return apply_filters( 'wc_customer_order_csv_export_methods', [
 			'local'     => __( 'locally', 'woocommerce-customer-order-xml-export-suite' ),
 			'ftp'       => __( 'via FTP', 'woocommerce-customer-order-csv-export' ),
 			'http_post' => __( 'via HTTP POST', 'woocommerce-customer-order-csv-export' ),
 			'email'     => __( 'via Email', 'woocommerce-customer-order-csv-export' ),
-		) );
+		] );
 	}
 
 

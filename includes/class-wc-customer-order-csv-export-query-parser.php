@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Query-Parser
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Customer/Order CSV Export Query Parser
@@ -38,12 +39,12 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 	 *
 	 * @since 4.0.0
 	 * @param array $query
-	 * @param string $export_type Export type, either 'orders' or 'customers'
+	 * @param string $export_type Export type, 'orders', 'customers', or 'coupons'
 	 * @return array
 	 */
 	public static function parse_export_query( $query, $export_type ) {
 
-		$ids = array();
+		$ids = [];
 
 		switch ( $export_type ) {
 
@@ -56,6 +57,11 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 
 				$ids = self::parse_customers_export_query( $query );
 			break;
+
+			case 'coupons':
+
+				$ids = self::parse_coupons_export_query( $query );
+				break;
 		}
 
 		/**
@@ -96,20 +102,26 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 	 */
 	public static function parse_orders_export_query( $query, $export_type = 'orders' ) {
 
-		$query_args = array(
+		if ( 'orders' === $export_type ) {
+			$default_order_statuses = array_keys( (array) wc_get_order_statuses() );
+		} else {
+			$default_order_statuses = 'any';
+		}
+
+		$query_args = [
 			'fields'         => 'ids',
 			'post_type'      => 'shop_order',
-			'post_status'    => ( ! empty( $query['statuses'] ) && 'orders' === $export_type ) ? (array) $query['statuses'] : 'any',
+			'post_status'    => ! empty( $query['statuses'] ) && 'orders' === $export_type ? (array) $query['statuses'] : $default_order_statuses,
 			'posts_per_page' => ! empty( $query['limit'] ) ? max( 1, (int) $query['limit'] ) : -1,
 			'offset'         => empty( $query['offset'] ) ? 0 : absint( $query['offset'] ),
-			'date_query'  => array(
-				array(
+			'date_query'  => [
+				[
 					'before'    => empty( $query['end_date'] )   ? date( 'Y-m-d 23:59', current_time( 'timestamp' ) ) : $query['end_date'] . ' 23:59:59.99',
 					'after'     => empty( $query['start_date'] ) ? date( 'Y-m-d 00:00', 0 ) : $query['start_date'],
 					'inclusive' => true,
-				),
-			),
-		);
+				],
+			],
+		];
 
 		// allow offset to be used with "no" posts limit
 		if ( $query_args['offset'] > 0 && -1 === $query_args['posts_per_page'] ) {
@@ -119,30 +131,30 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 		// only include orders with guest customers
 		if ( 'customers' === $export_type ) {
 
-			$query_args['meta_query'] = array(
-				array(
+			$query_args['meta_query'] = [
+				[
 					'key'   => '_customer_user',
 					'value' => 0
-				),
-			);
+				],
+			];
 
 			if ( ! empty( $query['exclude_billing_emails'] ) ) {
 
-				$query_args['meta_query'][] = array(
+				$query_args['meta_query'][] = [
 					'key'     => '_billing_email',
 					'value'   => $query['exclude_billing_emails'],
 					'compare' => 'NOT IN',
-				);
+				];
 			}
 		}
 
 		if ( ! empty( $query['not_exported'] ) ) {
 
 			if ( ! isset( $query_args['meta_query'] ) ) {
-				$query_args['meta_query'] = array();
+				$query_args['meta_query'] = [];
 			}
 
-			$exclude_exported          = array();
+			$exclude_exported          = [];
 			$exclude_exported['key']   = 'customers' === $export_type ? '_wc_customer_order_csv_export_customer_is_exported' : '_wc_customer_order_csv_export_is_exported';
 			$exclude_exported['value'] = 0;
 
@@ -203,32 +215,92 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 		// handle subscription & renewal order filtering
 		if ( wc_customer_order_csv_export()->is_plugin_active( 'woocommerce-subscriptions.php' ) ) {
 
-			$subscriptions = $renewals = array();
+			$subscriptions = $renewals = [];
 
 			if ( isset( $query['subscription_orders'] ) ) {
-
-				if ( SV_WC_Plugin_Compatibility::is_wc_subscriptions_version_gte_2_0() ) {
-					$subscriptions = array_filter( $order_ids, 'wcs_order_contains_subscription' );
-				} else {
-					$subscriptions = array_filter( $order_ids, array( 'WC_Subscriptions_Order', 'order_contains_subscription' ) );
-				}
+				$subscriptions = self::filter_orders_containing_subscriptions( $order_ids, 'subscriptions' );
 			}
 
 			if ( isset( $query['subscription_renewals'] ) ) {
-
-				if ( SV_WC_Plugin_Compatibility::is_wc_subscriptions_version_gte_2_0() ) {
-					$renewals = array_filter( $order_ids, 'wcs_order_contains_renewal' );
-				} else {
-					$renewals = array_filter( $order_ids, array( 'WC_Subscriptions_Renewal_Order', 'is_renewal' ) );
-				}
+				$renewals = self::filter_orders_containing_subscriptions( $order_ids, 'renewals' );
 			}
 
-			if ( ! empty( $subscriptions ) || ! empty( $renewals ) ) {
-				$order_ids = array_merge( $subscriptions, $renewals );
+			if ( isset( $query['subscription_orders'] ) || isset( $query['subscription_renewals'] ) ) {
+				$order_ids = array_unique( array_merge( $subscriptions, $renewals ) );
 			}
 		}
 
 		return $order_ids;
+	}
+
+
+	/**
+	 * Filters provided order IDs containing subscriptions or subscription renewals.
+	 *
+	 * @since 4.4.5
+	 *
+	 * @see \wcs_order_contains_subscription()
+	 * @see \wcs_order_contains_renewal()
+	 *
+	 * @param int[] $order_ids array of order IDs
+	 * @param string $which whether to filter 'subscriptions' or 'renewals'
+	 * @return int[]
+	 */
+	private static function filter_orders_containing_subscriptions( $order_ids, $which ) {
+
+		$order_ids    = is_array( $order_ids ) ? array_filter( array_map( 'absint', $order_ids ) ) : [];
+		$filtered_ids = [];
+
+		if ( ! empty( $order_ids ) ) {
+
+			if ( Framework\SV_WC_Plugin_Compatibility::is_wc_subscriptions_version_gte_2_0() ) {
+
+				$query_args = [
+					'nopaging'    => true,
+					'post_status' => 'any',
+				];
+
+				if ( 'subscriptions' === $which ) {
+
+					$subscription_orders = get_posts( array_merge( $query_args, [
+						'fields'          => 'id=>parent',
+						'post_type'       => 'shop_subscription',
+						'post_parent__in' => $order_ids,
+					] ) );
+
+					if ( ! empty( $subscription_orders ) ) {
+
+						foreach ( $subscription_orders as $subscription_order ) {
+
+							$order_id = current( (array) $subscription_order );
+
+							if ( is_numeric( $order_id ) && in_array( $order_id, $order_ids, false ) ) {
+								$filtered_ids[] = (int) $order_id;
+							}
+						}
+					}
+
+				} elseif( 'renewals' === $which ) {
+
+					$filtered_ids = get_posts( array_merge( $query_args, [
+						'fields'    => 'ids',
+						'post_type' => 'shop_order',
+						'meta_key'  => '_subscription_renewal',
+						'post__in'  => $order_ids,
+					] ) );
+				}
+
+			} else { // legacy handling for Subscriptions 1.5.x
+
+				if ( 'subscriptions' === $which ) {
+					$filtered_ids = array_filter( $order_ids, [ 'WC_Subscriptions_Order', 'order_contains_subscription' ] );
+				} elseif ( 'renewals' === $which ) {
+					$filtered_ids = array_filter( $order_ids, [ 'WC_Subscriptions_Renewal_Order', 'is_renewal' ] );
+				}
+			}
+		}
+
+		return array_filter( $filtered_ids );
 	}
 
 
@@ -248,17 +320,17 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 	public static function parse_customers_export_query( $query ) {
 		global $wpdb;
 
-		$query_args = array(
+		$query_args = [
 			// will exclude shop employees for stores using WP 4.4+
-			'role__not_in' => array( 'administrator', 'shop_manager' ),
-			'date_query'   => array(
-				array(
+			'role__not_in' => [ 'administrator', 'shop_manager' ],
+			'date_query'   => [
+				[
 					'before'    => empty( $query['end_date'] )   ? date( 'Y-m-d 23:59', current_time( 'timestamp' ) ) : $query['end_date'] . ' 23:59:59.99',
 					'after'     => empty( $query['start_date'] ) ? date( 'Y-m-d 00:00', 0 ) : $query['start_date'],
 					'inclusive' => true,
-				),
-			),
-		);
+				],
+			],
+		];
 
 		if ( ! empty( $query['not_exported'] ) ) {
 
@@ -292,10 +364,10 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 		 */
 		do_action( 'wc_customer_order_csv_export_after_users_query', $query_args );
 
-		$customers = array();
+		$customers = [];
 
 		// Exclude registered customers from guest customer query
-		$query['exclude_billing_emails'] = array();
+		$query['exclude_billing_emails'] = [];
 
 		foreach ( $users as $user ) {
 
@@ -339,22 +411,22 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 				}
 
 				// find orders with the same billing address, for which the customer has already been exported
-				$exported_orders = new WP_Query( array(
+				$exported_orders = new WP_Query( [
 					'fields'         => 'ids',
 					'post_type'      => 'shop_order',
 					'post_status'    => 'any',
 					'posts_per_page' => 1,
-					'meta_query'     => array(
-						array(
+					'meta_query'     => [
+						[
 							'key'   => '_billing_email',
 							'value' => $billing_email,
-						),
-						array(
+						],
+						[
 							'key'   => '_wc_customer_order_csv_export_customer_is_exported',
 							'value' => 1,
-						),
-					),
-				) );
+						],
+					],
+				] );
 
 				// skip customers that have already been exported from another order
 				if ( count( $exported_orders->posts ) > 0 ) {
@@ -364,7 +436,7 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 			}
 
 			// uniquely identify a guest customer based on their billing email and related order id
-			$customers[] = array( $billing_email, $order_id );
+			$customers[] = [ $billing_email, $order_id ];
 		}
 
 		return $customers;
@@ -424,6 +496,142 @@ class WC_Customer_Order_CSV_Export_Query_Parser {
 			AND tt.taxonomy = 'product_cat'
 			AND tt.term_id IN ( {$product_cat_list} )
 		" );
+	}
+
+
+	/**
+	 * Parse export query for coupons.
+	 *
+	 * @since 4.6.0
+	 *
+	 * @param array $query {
+	 *                 The export query args. All params are optional.
+	 *
+	 *                 @type array $product_categories
+	 *                             Array of product categories coupons must
+	 *                             support to be exported
+	 * }
+	 * @return array of coupon IDs
+	 */
+	public static function parse_coupons_export_query( $query ) {
+
+		$query_args = [
+			'fields'         => 'ids',
+			'post_type'      => 'shop_coupon',
+			'posts_per_page' => -1,
+		];
+
+		/**
+		 * Filters the query args used for getting coupons during a coupon export.
+		 *
+		 * @since 4.6.2
+		 *
+		 * @param array $query_args query args
+		 */
+		$query_args = apply_filters( 'wc_customer_order_csv_export_coupon_query_args', $query_args );
+
+		// get coupon IDs
+		$coupon_query = new WP_Query( $query_args );
+		$coupon_ids   = $coupon_query->posts;
+
+		// filter coupon IDs based on additional filtering criteria (products and product categories)
+		if ( ! empty( $coupon_ids ) && ! empty( $query['coupon_products'] ) ) {
+
+			$coupon_products = ( is_array( $query['coupon_products'] ) ) ? $query['coupon_products'] : [ $query['coupon_products'] ];
+
+			$coupon_ids = self::filter_coupons_for_products( $coupon_ids, $coupon_products );
+
+		}
+
+		if ( ! empty( $coupon_ids ) && ! empty( $query['coupon_product_categories'] ) ) {
+
+			$coupon_product_categories = ( is_array( $query['coupon_product_categories'] ) ) ? $query['coupon_product_categories'] : [ $query['coupon_product_categories'] ];
+
+			$coupon_ids = self::filter_coupons_for_product_categories( $coupon_ids, $coupon_product_categories );
+
+		}
+
+		return $coupon_ids;
+	}
+
+
+	/**
+	 * Filter provided coupon IDs based on whether they apply to provided products.
+	 *
+	 * @since 4.6.0
+	 *
+	 * @param array $coupon_ids Array of coupon IDs
+	 * @param array $product_ids Array of product IDs
+	 * @return array
+	 */
+	public static function filter_coupons_for_products( $coupon_ids, $product_ids ) {
+		global $wpdb;
+
+		$coupon_id_list = self::get_sanitized_id_list( $coupon_ids );
+
+		// applicable products are stored as post metadata
+		$coupons = $wpdb->get_results( "SELECT meta.post_id, meta.meta_value
+			FROM {$wpdb->prefix}postmeta meta
+			WHERE meta.post_id IN ( {$coupon_id_list} )
+			AND meta.meta_key = 'product_ids'
+		" );
+
+		// filter out coupons that don't apply to at least one provided product
+		$filtered_coupon_ids = [];
+
+		foreach ( $coupons as $coupon ) {
+
+			$coupon_product_ids = explode( ',', $coupon->meta_value );
+
+			if ( ! empty( $coupon_product_ids ) && ! empty( array_intersect( $coupon_product_ids, $product_ids ) ) ) {
+
+				$filtered_coupon_ids[] = $coupon->post_id;
+
+			}
+
+		}
+
+		return $filtered_coupon_ids;
+	}
+
+
+	/**
+	 * Filter provided coupon IDs based on whether they apply to provided categories.
+	 *
+	 * @since 4.6.0
+	 *
+	 * @param array $coupon_ids Array of coupon IDs
+	 * @param array $product_category_ids Array of product category IDs
+	 * @return array
+	 */
+	public static function filter_coupons_for_product_categories( $coupon_ids, $product_category_ids ) {
+		global $wpdb;
+
+		$coupon_id_list = self::get_sanitized_id_list( $coupon_ids );
+
+		// applicable product categories are stored as post metadata
+		$coupons = $wpdb->get_results( "SELECT meta.post_id, meta.meta_value
+			FROM {$wpdb->prefix}postmeta meta
+			WHERE meta.post_id IN ( {$coupon_id_list} )
+			AND meta.meta_key = 'product_categories'
+		" );
+
+		// filter out coupons that don't apply to at least one provided product category
+		$filtered_coupon_ids = [];
+
+		foreach ( $coupons as $coupon ) {
+
+			$coupon_category_ids = unserialize( $coupon->meta_value );
+
+			if ( ! empty( $coupon_category_ids ) && ! empty( array_intersect( $coupon_category_ids, $product_category_ids ) ) ) {
+
+				$filtered_coupon_ids[] = $coupon->post_id;
+
+			}
+
+		}
+
+		return $filtered_coupon_ids;
 	}
 
 

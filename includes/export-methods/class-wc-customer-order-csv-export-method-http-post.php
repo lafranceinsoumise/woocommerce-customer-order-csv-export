@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Export-Methods/HTTP-POST
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Export HTTP POST Class
@@ -63,14 +64,25 @@ class WC_Customer_Order_CSV_Export_Method_HTTP_POST implements WC_Customer_Order
 	 * Performs an HTTP POST to the specified URL with the exported data
 	 *
 	 * @since 3.0.0
-	 * @param string $file_path pathj to file to be posted
-	 * @throws SV_WC_Plugin_Exception WP HTTP error handling
+	 *
+	 * @param \WC_Customer_Order_CSV_Export_Export|string $export the export object or a path to an export file
 	 * @return bool whether the HTTP POST was successful or not
+	 * @throws Framework\SV_WC_Plugin_Exception WP HTTP error handling
 	 */
-	public function perform_action( $file_path ) {
+	public function perform_action( $export ) {
 
-		if ( empty( $file_path ) ) {
-			throw new SV_WC_Plugin_Exception( __( 'Missing file path', 'woocommerce-customer-order-csv-export' ) );
+		if ( ! $export ) {
+			throw new Framework\SV_WC_Plugin_Exception( __( 'Unable to find export for transfer', 'woocommerce-customer-order-csv-export' ) );
+		}
+
+		// export is a filename
+		if ( is_string( $export ) && is_readable( $export ) ) {
+
+			$contents = file_get_contents( $export );
+
+		} else {
+
+			$contents = $export->get_output();
 		}
 
 		/**
@@ -79,27 +91,27 @@ class WC_Customer_Order_CSV_Export_Method_HTTP_POST implements WC_Customer_Order
 		 * @since 3.0.0
 		 * @param array $args
 		 */
-		$args = apply_filters( 'wc_customer_order_csv_export_http_post_args', array(
+		$args = apply_filters( 'wc_customer_order_csv_export_http_post_args', [
 			'timeout'     => 60,
 			'redirection' => 0,
 			'httpversion' => '1.0',
 			'sslverify'   => true,
 			'blocking'    => true,
-			'headers'     => array(
+			'headers'     => [
 				'accept'       => $this->content_type,
 				'content-type' => $this->content_type,
-			),
-			'body'        => file_get_contents( $file_path ),
-			'cookies'     => array(),
+			],
+			'body'        => $contents,
+			'cookies'     => [],
 			'user-agent'  => "WordPress " . $GLOBALS['wp_version'],
-		) );
+		] );
 
 		$result = wp_safe_remote_post( $this->http_post_url, $args );
 
 		// check for errors
 		if ( is_wp_error( $result ) ) {
 
-			throw new SV_WC_Plugin_Exception( $result->get_error_message() );
+			throw new Framework\SV_WC_Plugin_Exception( $result->get_error_message() );
 		}
 
 		/**
@@ -111,7 +123,7 @@ class WC_Customer_Order_CSV_Export_Method_HTTP_POST implements WC_Customer_Order
 		 * @param bool $success whether the request was successful or not
 		 * @param array $result full wp_remote_post() result
 		 */
-		return apply_filters( 'wc_customer_order_csv_export_http_post_success', in_array( $result['response']['code'], array( 200, 201 ) ), $result );
+		return apply_filters( 'wc_customer_order_csv_export_http_post_success', in_array( $result['response']['code'], [ 200, 201 ] ), $result );
 	}
 
 }

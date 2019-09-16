@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Export-Methods/FTP-Implicit-SSL
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Export FTP over Implicit SSL Class
@@ -45,12 +46,12 @@ class WC_Customer_Order_CSV_Export_Method_FTP_Implicit_SSL extends WC_Customer_O
 	 * Connect to FTP server over Implicit SSL/TLS
 	 *
 	 * @since 3.0.0
-	 * @throws SV_WC_Plugin_Exception
+	 * @throws Framework\SV_WC_Plugin_Exception
 	 * @param array $args
 	 */
-	 public function __construct( $args ) {
+	public function __construct( $args ) {
 
-	 	parent::__construct( $args );
+		parent::__construct( $args );
 
 		// set host/initial path
 		$this->url = "ftps://{$this->server}/{$this->path}";
@@ -61,11 +62,11 @@ class WC_Customer_Order_CSV_Export_Method_FTP_Implicit_SSL extends WC_Customer_O
 		// check for successful connection
 		if ( ! $this->curl_handle ) {
 
-			throw new SV_WC_Plugin_Exception( __( 'Could not initialize cURL.', 'woocommerce-customer-order-csv-export' ) );
+			throw new Framework\SV_WC_Plugin_Exception( __( 'Could not initialize cURL.', 'woocommerce-customer-order-csv-export' ) );
 		}
 
 		// connection options
-		$options = array(
+		$options = [
 			CURLOPT_USERPWD        => $this->username . ':' . $this->password,
 			CURLOPT_SSL_VERIFYPEER => false, // don't verify SSL
 			CURLOPT_SSL_VERIFYHOST => false,
@@ -74,7 +75,7 @@ class WC_Customer_Order_CSV_Export_Method_FTP_Implicit_SSL extends WC_Customer_O
 			CURLOPT_UPLOAD         => true,
 			CURLOPT_PORT           => $this->port,
 			CURLOPT_TIMEOUT        => $this->timeout,
-		);
+		];
 
 		// cURL FTP enables passive mode by default, so disable it by enabling the
 		// PORT command
@@ -99,58 +100,65 @@ class WC_Customer_Order_CSV_Export_Method_FTP_Implicit_SSL extends WC_Customer_O
 			if ( ! curl_setopt( $this->curl_handle, $option_name, $option_value ) ) {
 
 				/* translators: Placeholders: %s - option name */
-				throw new SV_WC_Plugin_Exception( sprintf( __( 'Could not set cURL option: %s', 'woocommerce-customer-order-csv-export' ), $option_name ) );
+				throw new Framework\SV_WC_Plugin_Exception( sprintf( __( 'Could not set cURL option: %s', 'woocommerce-customer-order-csv-export' ), $option_name ) );
 			}
 		}
 	}
 
 
 	/**
-	 * Upload the file by writing into temporary memory and upload the stream to
-	 * remote file
+	 * Uploads the file to the remote target.
 	 *
 	 * @since 3.0.0
-	 * @param string $file_path path to file file to upload
-	 * @throws SV_WC_Plugin_Exception Open remote file failure or write data failure
+	 *
+	 * @param \WC_Customer_Order_CSV_Export_Export|string $export the export object or a path to an export file
 	 * @return bool whether the upload was successful or not
+	 * @throws Framework\SV_WC_Plugin_Exception Open remote file failure or write data failure
 	 */
-	public function perform_action( $file_path ) {
+	public function perform_action( $export ) {
 
-		if ( empty( $file_path ) ) {
-			throw new SV_WC_Plugin_Exception( __( 'Missing file path', 'woocommerce-customer-order-csv-export' ) );
+		if ( ! $export ) {
+			throw new Framework\SV_WC_Plugin_Exception( __( 'Unable to find export for transfer', 'woocommerce-customer-order-csv-export' ) );
 		}
 
-		$filename = basename( $file_path );
+		if ( is_string( $export ) && is_readable( $export ) ) {
+
+			$file_path = $export;
+			$stream    = fopen( $file_path, 'r' );
+			$filename  = basename( $file_path );
+
+		} else {
+
+			$filename = $export->get_filename();
+			$stream   = $export->get_file_stream();
+		}
 
 		// set file name
 		if ( ! curl_setopt( $this->curl_handle, CURLOPT_URL, $this->url . $filename ) ) {
 
-			/* translators: Placeholders: %s - name of file to be updloaded */
-			throw new SV_WC_Plugin_Exception( sprintf( __( 'Could not set cURL file name: %s', 'woocommerce-customer-order-csv-export' ), $filename ) );
+			/* translators: Placeholders: %s - name of file to be uploaded */
+			throw new Framework\SV_WC_Plugin_Exception( sprintf( __( 'Could not set cURL file name: %s', 'woocommerce-customer-order-csv-export' ), $filename ) );
 		}
-
-		// open memory stream for writing
-		$stream = fopen( $file_path, 'r' );
 
 		// check for valid stream handle
 		if ( ! $stream ) {
 
 			/* translators: Placeholders: %s - file path */
-			throw new SV_WC_Plugin_Exception( sprintf( __( 'Could not open %s for reading.', 'woocommerce-customer-order-csv-export' ), $file_path ) );
+			throw new Framework\SV_WC_Plugin_Exception( sprintf( __( 'Could not open %s for reading.', 'woocommerce-customer-order-csv-export' ), $filename ) );
 		}
 
 		// set the file to be uploaded
 		if ( ! curl_setopt( $this->curl_handle, CURLOPT_INFILE, $stream ) ) {
 
 			/* translators: Placeholders: %s - name of file to be updloaded */
-			throw new SV_WC_Plugin_Exception( sprintf( __( 'Could not load file %s', 'woocommerce-customer-order-csv-export' ), $filename ) );
+			throw new Framework\SV_WC_Plugin_Exception( sprintf( __( 'Could not load file %s', 'woocommerce-customer-order-csv-export' ), $filename ) );
 		}
 
 		// upload file
 		if ( ! curl_exec( $this->curl_handle ) ) {
 
 			/* translators: Placeholders: %1$s - cURL error number, %2$s - cURL error message */
-			throw new SV_WC_Plugin_Exception( sprintf( __( 'Could not upload file. cURL Error: [%1$s] - %2$s', 'woocommerce-customer-order-csv-export' ), curl_errno( $this->curl_handle ), curl_error( $this->curl_handle ) ) );
+			throw new Framework\SV_WC_Plugin_Exception( sprintf( __( 'Could not upload file. cURL Error: [%1$s] - %2$s', 'woocommerce-customer-order-csv-export' ), curl_errno( $this->curl_handle ), curl_error( $this->curl_handle ) ) );
 		}
 
 		// close the stream handle

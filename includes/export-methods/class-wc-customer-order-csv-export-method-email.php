@@ -16,13 +16,14 @@
  * versions in the future. If you wish to customize WooCommerce Customer/Order CSV Export for your
  * needs please refer to http://docs.woocommerce.com/document/ordercustomer-csv-exporter/
  *
- * @package     WC-Customer-Order-CSV-Export/Export-Methods/Email
  * @author      SkyVerge
- * @copyright   Copyright (c) 2012-2017, SkyVerge, Inc.
+ * @copyright   Copyright (c) 2015-2019, SkyVerge, Inc.
  * @license     http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  */
 
 defined( 'ABSPATH' ) or exit;
+
+use SkyVerge\WooCommerce\PluginFramework\v5_4_1 as Framework;
 
 /**
  * Export Email Class
@@ -65,6 +66,7 @@ class WC_Customer_Order_CSV_Export_Method_Email implements WC_Customer_Order_CSV
 	 */
 	 public function __construct( $args ) {
 
+		$this->args             = $args;
 		$this->email_recipients = $args['email_recipients'];
 		$this->email_subject    = $args['email_subject'];
 		$this->email_message    = $args['email_message'];
@@ -73,17 +75,27 @@ class WC_Customer_Order_CSV_Export_Method_Email implements WC_Customer_Order_CSV
 
 
 	/**
-	 * Emails the admin with the exported file as an attachment
+	 * Emails the admin with the exported file as an attachment.
 	 *
 	 * @since 3.1.0
-	 * @param string $filename the attachment file path
-	 * @throws SV_WC_Plugin_Exception wp_mail errors
-	 * @return bool whether the mail was sent successfully or not
-	 */
-	public function perform_action( $file_path ) {
 
-		if ( empty( $file_path ) ) {
-			throw new SV_WC_Plugin_Exception( __( 'Missing file path', 'woocommerce-customer-order-csv-export' ) );
+	 * @param \WC_Customer_Order_CSV_Export_Export|string $export the export object or a path to an export file
+	 * @return bool whether the mail was sent successfully or not
+	 * @throws Framework\SV_WC_Plugin_Exception wp_mail errors
+	 */
+	public function perform_action( $export ) {
+
+		if ( ! $export ) {
+			throw new Framework\SV_WC_Plugin_Exception( __( 'Unable to find export for transfer', 'woocommerce-customer-order-csv-export' ) );
+		}
+
+		if ( is_string( $export ) && is_readable( $export ) ) {
+
+			$file_path = $export;
+
+		} else {
+
+			$file_path = $export->get_temporary_file_path();
 		}
 
 		// init email args
@@ -93,17 +105,17 @@ class WC_Customer_Order_CSV_Export_Method_Email implements WC_Customer_Order_CSV
 		$message = $this->email_message;
 
 		// Allow actors to change the email headers.
-		$headers      = apply_filters( 'woocommerce_email_headers', "Content-Type: text/plain\r\n", $this->email_id );
-		$attachments  = array( $file_path );
+		$headers     = apply_filters( 'woocommerce_email_headers', "Content-Type: text/plain\r\n", $this->email_id, $this->args );
+		$attachments = [ $file_path ];
 
 		// hook into `wp_mail_failed` and throw errors as exceptions
-		add_action( 'wp_mail_failed', array( $this, 'handle_wp_mail_error' ) );
+		add_action( 'wp_mail_failed', [ $this, 'handle_wp_mail_error' ] );
 
 		// send email
 		$result = $mailer->send( $to, $subject, $message, $headers, $attachments );
 
 		// unhook from wp_mail_failed
-		remove_action( 'wp_mail_failed', array( $this, 'handle_wp_mail_error' ) );
+		remove_action( 'wp_mail_failed', [ $this, 'handle_wp_mail_error' ] );
 
 		return $result;
 	}
@@ -119,9 +131,9 @@ class WC_Customer_Order_CSV_Export_Method_Email implements WC_Customer_Order_CSV
 	public function handle_wp_mail_error( WP_Error $error ) {
 
 		// unhook from wp_mail_failed
-		remove_action( 'wp_mail_failed', array( $this, 'handle_wp_mail_error' ) );
+		remove_action( 'wp_mail_failed', [ $this, 'handle_wp_mail_error' ] );
 
-		throw new SV_WC_Plugin_Exception( $error->get_error_message() );
+		throw new Framework\SV_WC_Plugin_Exception( $error->get_error_message() );
 	}
 
 }
