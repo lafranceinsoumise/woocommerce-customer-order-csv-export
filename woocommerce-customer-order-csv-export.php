@@ -1,15 +1,16 @@
 <?php
 /**
- * Plugin Name: WooCommerce Customer/Order CSV Export
+ * Plugin Name: WooCommerce Customer/Order/Coupon Export
  * Plugin URI: http://www.woocommerce.com/products/ordercustomer-csv-export/
- * Description: Easily download customers & orders in CSV format and automatically export FTP or HTTP POST on a recurring schedule
+ * Documentation URI: https://docs.woocommerce.com/document/ordercustomer-csv-export/
+ * Description: Easily download customers, orders, and coupons in CSV and XML and schedule recurring, automated exports via FTP, HTTP POST, and more.
  * Author: SkyVerge
  * Author URI: http://www.woocommerce.com
- * Version: 4.8.1
+ * Version: 5.5.0
  * Text Domain: woocommerce-customer-order-csv-export
  * Domain Path: /i18n/languages/
  *
- * Copyright: (c) 2012-2019, SkyVerge (info@skyverge.com)
+ * Copyright: (c) 2015-2023, SkyVerge (info@skyverge.com)
  *
  * License: GNU General Public License v3.0
  * License URI: http://www.gnu.org/licenses/gpl-3.0.html
@@ -17,28 +18,19 @@
  * @package   WC-Customer-Order-CSV-Export
  * @author    SkyVerge
  * @category  Export
- * @copyright Copyright (c) 2012-2019, SkyVerge, Inc.
+ * @copyright Copyright (c) 2015-2023, SkyVerge, Inc. (info@skyverge.com)
  * @license   http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License v3.0
  *
  * Woo: 18652:914de15813a903c767b55445608bf290
- * WC requires at least: 3.0.9
- * WC tested up to: 3.7.0
+ * WC requires at least: 3.9.4
+ * WC tested up to: 7.9.0
  */
 
 defined( 'ABSPATH' ) or exit;
 
-// Required functions
-if ( ! function_exists( 'woothemes_queue_update' ) ) {
-	require_once( plugin_dir_path( __FILE__ ) . 'woo-includes/woo-functions.php' );
-}
-
-// Plugin updates
-woothemes_queue_update( plugin_basename( __FILE__ ), '914de15813a903c767b55445608bf290', '18652' );
-
-// WC active check
-if ( ! is_woocommerce_active() ) {
-	return;
-}
+// required Action Scheduler library
+// TODO: we can stop bundling Action Scheduler when WooCommerce 4.0 is the minimum required version as it's now part of core WooCommerce {WV 2019-11-12}
+require_once( plugin_dir_path( __FILE__ ) . 'vendor/woocommerce/action-scheduler/action-scheduler.php' );
 
 /**
  * The plugin loader class.
@@ -49,19 +41,19 @@ class WC_Customer_Order_CSV_Export_Loader {
 
 
 	/** minimum PHP version required by this plugin */
-	const MINIMUM_PHP_VERSION = '5.6.0';
+	const MINIMUM_PHP_VERSION = '7.4';
 
 	/** minimum WordPress version required by this plugin */
-	const MINIMUM_WP_VERSION = '4.4';
+	const MINIMUM_WP_VERSION = '5.6';
 
 	/** minimum WooCommerce version required by this plugin */
-	const MINIMUM_WC_VERSION = '3.0.9';
+	const MINIMUM_WC_VERSION = '3.9.4';
 
 	/** SkyVerge plugin framework version used by this plugin */
-	const FRAMEWORK_VERSION = '5.4.1';
+	const FRAMEWORK_VERSION = '5.11.6';
 
 	/** the plugin name, for displaying notices */
-	const PLUGIN_NAME = 'WooCommerce Customer/Order CSV Export';
+	const PLUGIN_NAME = 'WooCommerce Customer/Order/Coupon Export';
 
 
 	/** @var WC_Customer_Order_CSV_Export_Loader single instance of this class */
@@ -85,8 +77,11 @@ class WC_Customer_Order_CSV_Export_Loader {
 
 		add_action( 'admin_notices', [ $this, 'admin_notices' ], 15 );
 
+		add_filter( 'extra_plugin_headers', array( $this, 'add_documentation_header' ) );
+
 		// if the environment check fails, initialize the plugin
 		if ( $this->is_environment_compatible() ) {
+
 			add_action( 'plugins_loaded', [ $this, 'init_plugin' ] );
 		}
 	}
@@ -335,6 +330,24 @@ class WC_Customer_Order_CSV_Export_Loader {
 			</div>
 			<?php
 		}
+	}
+
+
+	/**
+	 * Adds the Documentation URI header.
+	 *
+	 * @internal
+	 *
+	 * @since 5.1.0
+	 *
+	 * @param string[] $headers original headers
+	 * @return string[]
+	 */
+	public function add_documentation_header( $headers ) {
+
+		$headers[] = 'Documentation URI';
+
+		return $headers;
 	}
 
 
